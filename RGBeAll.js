@@ -650,7 +650,9 @@ class MagicHomeController {
 		this.id = info.mac;
 		this.model = info.model;
 		this.manual = !!info.manual;
-		this.name = this.manual ? `Magic Home ${this.ip}` : `Magic Home ${this.model}`;
+		// The card in SignalRGB carries the project name, not the hardware brand. The IP
+		// or module model follows it so several controllers stay distinguishable.
+		this.name = this.manual ? `RGBeAll ${this.ip}` : `RGBeAll ${this.model}`;
 
 		this.lastSeen = Date.now();
 		this.offline = false;
