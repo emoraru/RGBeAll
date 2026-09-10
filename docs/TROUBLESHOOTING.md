@@ -95,10 +95,19 @@ the README's scope section.
 
 ## Getting more detail
 
-SignalRGB writes plugin logs to:
+SignalRGB writes logs to:
 
 ```
-%LOCALAPPDATA%\VortxEngine\app-<version>\Signal-x64\Logs\
+%LOCALAPPDATA%\WhirlwindFX\SignalRgb\Logs\
+```
+
+Files are named `SignalRGB_<date>_<time>.log`; the newest one is the current session. To follow it
+live while reproducing a problem:
+
+```powershell
+$log = Get-ChildItem "$env:LOCALAPPDATA\WhirlwindFX\SignalRgb\Logs\*.log" |
+       Sort-Object LastWriteTime -Descending | Select-Object -First 1
+Get-Content $log.FullName -Wait -Tail 40 | Select-String -Pattern 'MagicHome','Magic Home'
 ```
 
 The plugin logs connection attempts, socket errors and discovery results. Include the relevant lines
