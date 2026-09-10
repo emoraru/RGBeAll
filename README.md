@@ -108,22 +108,21 @@ while SignalRGB is running, control comes straight back.
 
 **Stopping.** **When SignalRGB stops** decides what the strip is left in:
 
-| Option | Commands sent | Survives a PC shutdown? |
-|---|---|---|
-| **Turn off** (default) | one | **Yes** |
-| Restore colour and turn off | two | Not reliably |
-| Restore colour, leave on | one | Yes |
-| Leave as-is | none | — |
+| Option | What it does |
+|---|---|
+| **Turn off** (default) | powers the strip off, keeping whatever colour the effect ended on |
+| Restore colour and turn off | sets **Restore Colour**, then powers off |
+| Restore colour, leave on | sets **Restore Colour** and leaves it lit |
+| Leave as-is | nothing |
 
-The distinction matters more than it looks. Windows gives a process very little time once a
-shutdown begins, and the controller acts on only the first command in a TCP packet. A single
-power-off cannot be spoiled by either constraint — if two of them end up sharing a packet, the
-first is still a power-off.
+Restoring a colour *and* powering off needs two different commands, and this hardware makes that
+awkward: the controller acts on only the first command in a TCP packet, and Qt flushes writes once
+per turn of its event loop — so two sends in the same turn share a packet and the second is
+discarded. During a shutdown there is no later turn to use.
 
-Two *different* commands are fragile in exactly that situation: the colour goes first and lands,
-the power-off shares its packet and is dropped, and the strip is left showing the restore colour
-but still on. That is why **Turn off** is the default even though it leaves whatever colour the
-effect happened to end on.
+The bridge solves it by holding **two connections per controller** and routing colour on one and
+power on the other. Two sockets cannot share a packet, so the pair always arrives intact no matter
+how the event loop schedules them.
 
 This applies in two situations:
 

@@ -263,3 +263,25 @@ the power byte before concluding anything about delivery.
 The practical consequence: **anything that reconnects to a controller must send a power-on before
 it sends colour**, because the strip may have been switched off since the last session — including
 by its own shutdown behaviour.
+
+---
+
+## Colour and power are independent stored state
+
+Useful when deciding what has to happen at shutdown:
+
+```
+set blue, power off, power on again   -> still blue, never rewritten
+```
+
+The colour survives a power cycle on its own. But it can only be *set* while the strip is on —
+see the previous section — so the order for leaving a known colour behind is forced:
+
+1. write the colour **while the strip is still on**
+2. then power off
+
+You cannot pre-stage the colour while off, and you cannot reverse the order.
+
+Combined with the one-command-per-packet rule, that means anything sending both commands must put
+them in **separate TCP packets**. Two connections is the simplest way to guarantee it — the
+controller accepts at least four — and it removes any dependence on event-loop timing.

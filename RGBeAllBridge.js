@@ -28,7 +28,7 @@ import udp from "@SignalRGB/udp";
  */
 
 export function Name() { return "RGBeAll Bridge"; }
-export function Version() { return "1.2.1"; }
+export function Version() { return "1.3.0"; }
 export function Type() { return "network"; }
 export function Publisher() { return "RGBeAll"; }
 export function Size() { return [1, 1]; }
@@ -80,6 +80,10 @@ function lednetFrame(bytes) {
 // Only these LEDNET commands are ever forwarded.
 const ALLOWED_COMMANDS = [0x31, 0x41, 0x71, 0x81];
 
+const CMD_COLOUR_A = 0x31;
+const CMD_COLOUR_B = 0x41;
+const CMD_POWER = 0x71;
+
 // Qt's QAbstractSocket::ConnectedState
 const STATE_CONNECTED = 3;
 
@@ -87,45 +91,43 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const IDLE_CLOSE_MS = 120000;
 
-// The controller acts on only the FIRST LEDNET command in a packet - verified by
-// sending a colour and a power-off concatenated, where the power-off was ignored.
-//
-// That is a packeting rule, not a timing one. Two separate write() calls always land,
-// even with no gap between them; only a single write carrying both commands fails.
-// The catch is that Qt buffers writes and flushes once per turn of the event loop, so
-// two sends in the SAME turn still leave as one packet. Commands therefore have to be
-// issued from different turns - and no delay is needed beyond that.
-//
-// The fast path costs nothing: RGBeAll.js sends its shutdown colour and power-off as
-// two separate datagrams, which arrive as two separate relay callbacks, so they are
-// already in different turns and go out as two packets immediately.
-//
-// Only sequences this file generates itself (the watchdog) need help, and they use a
-// single deferred slot drained on the next turn.
+// Keeps the power channel from going stale. Measured usable after 90s idle, but a PC
+// runs far longer than that between shutdowns, and a state query costs nothing.
+const KEEPALIVE_MS = 30000;
 
-/** One TCP connection to one controller, with reconnect backoff. */
-class BridgeConnection {
-	constructor(ip) {
+// ---------------------------------------------------------------------------
+// Why there are two sockets per controller
+//
+// Restoring a colour and switching the strip off needs two DIFFERENT commands, and
+// four properties of this hardware conspire against sending them:
+//
+//   1. Colour and power are separate persisted state - colour survives a power cycle.
+//   2. Colour writes are DISCARDED while the strip is off, so the colour has to be
+//      written while it is still on. The order is forced: colour, then power off.
+//   3. The controller acts on only the FIRST command in a TCP packet.
+//   4. Qt flushes writes once per turn of its event loop, so two sends in one turn
+//      share a packet - and at shutdown there is no next turn to use.
+//
+// Repeating the power-off does not help: if it shares a packet with the colour, the
+// controller takes the colour and ignores the rest.
+//
+// Two sockets cannot share a packet, which removes 3 and 4 entirely. Commands are
+// routed by type - colour on one, power on the other - so any colour/power pair ends
+// up in separate packets no matter how the event loop schedules them. Verified on the
+// hardware: written in the same tick on two sockets, both land.
+// ---------------------------------------------------------------------------
+
+/** One TCP connection to a controller, with reconnect backoff. */
+class Channel {
+	constructor(ip, label) {
 		this.ip = ip;
+		this.label = label;
 		this.socket = null;
 		this.ready = false;
 		this.connecting = false;
 		this.failures = 0;
 		this.nextAttemptAt = 0;
-		this.lastUsedAt = Date.now();
-
-		// One command held back because it must not share a packet with the last one.
-		this.deferred = null;
-
-		// A newly connected controller may be switched off - typically because the last
-		// shutdown turned it off. Colour commands are ignored while it is off, so the
-		// first thing sent on any new connection has to be a power-on.
-		this.needsPowerOn = true;
-
-		// Set from the config channel; null until RGBeAll.js has told us what to do.
-		this.fallback = null;
-		this.lastFrameAt = 0;
-		this.fallbackApplied = false;
+		this.lastSendAt = 0;
 	}
 
 	on(event, handler) {
@@ -150,7 +152,7 @@ class BridgeConnection {
 		return false;
 	}
 
-	ensureConnected() {
+	ensureConnected(onUp) {
 		if (this.isReady() || this.connecting) { return; }
 		if (Date.now() < this.nextAttemptAt) { return; }
 
@@ -164,13 +166,10 @@ class BridgeConnection {
 				self.connecting = false;
 				self.ready = true;
 				self.failures = 0;
-				// Re-armed on every reconnect, not just the first, so a dropped link also
-				// recovers a strip that was switched off in the meantime.
-				self.needsPowerOn = true;
-				service.log("RGBeAll Bridge: connected to " + self.ip);
+				service.log("RGBeAll Bridge: " + self.label + " channel connected to " + self.ip);
+				if (onUp) { onUp(); }
 			};
 			const down = function () {
-				if (self.ready) { service.log("RGBeAll Bridge: connection to " + self.ip + " closed"); }
 				self.ready = false;
 				self.connecting = false;
 				self.scheduleRetry();
@@ -182,21 +181,19 @@ class BridgeConnection {
 			this.on("close", down);
 			this.on("disconnected", down);
 			this.on("error", function (e) {
-				service.log("RGBeAll Bridge: socket error for " + self.ip + ": " + e);
+				service.log("RGBeAll Bridge: " + self.label + " channel error for " + self.ip + ": " + e);
 				self.ready = false;
 				self.connecting = false;
 				self.scheduleRetry();
 			});
-
-			// Acks are never parsed - no synchronous read ever happens here, so the
-			// frame-desync trap in docs/PROTOCOL.md cannot occur. An ack does arrive on
-			// its own turn though, which makes it a good moment to release anything held.
-			this.on("message", function () { self.drainDeferred(); });
+			// Acks are consumed and discarded. Nothing here ever does a synchronous read,
+			// so the frame-desync trap in docs/PROTOCOL.md cannot occur.
+			this.on("message", function () { });
 
 			this.socket.connect(this.ip, LEDNET_PORT);
 		} catch (e) {
 			this.connecting = false;
-			service.log("RGBeAll Bridge: connect failed for " + this.ip + ": " + e);
+			service.log("RGBeAll Bridge: " + this.label + " channel failed to connect to " + this.ip + ": " + e);
 			this.scheduleRetry();
 		}
 	}
@@ -212,50 +209,98 @@ class BridgeConnection {
 		try { if (this.socket) { this.socket.close(); } } catch (e) { /* already gone */ }
 		this.socket = null;
 		this.ready = false;
-		this.deferred = null;
 	}
 
-	/** Write one LEDNET command. Each call is its own packet, provided callers do not
-	 * issue two in the same turn of the event loop. */
 	send(frame) {
-		this.lastUsedAt = Date.now();
-
-		if (!this.isReady()) {
-			this.ensureConnected();
-			return false;
-		}
+		if (!this.isReady()) { return false; }
 
 		try {
 			this.socket.send(frame);
+			this.lastSendAt = Date.now();
 			return true;
 		} catch (e) {
-			service.log("RGBeAll Bridge: send failed for " + this.ip + ": " + e);
+			service.log("RGBeAll Bridge: " + this.label + " channel send failed for " + this.ip + ": " + e);
 			this.ready = false;
 			this.scheduleRetry();
 			return false;
 		}
 	}
+}
 
-	/** Hold a command back so it lands in its own packet on a later turn. */
-	defer(frame) {
-		this.deferred = frame;
+/** A controller, reached over one channel for colour and another for power. */
+class BridgeConnection {
+	constructor(ip) {
+		this.ip = ip;
+		this.colour = new Channel(ip, "colour");
+		this.power = new Channel(ip, "power");
+		this.lastUsedAt = Date.now();
+
+		// A newly connected controller may be switched off - typically because the last
+		// shutdown turned it off. Colour commands are ignored while it is off, so the
+		// first thing sent on any new connection has to be a power-on.
+		this.needsPowerOn = true;
+
+		// Set from the config channel; null until RGBeAll.js has told us what to do.
+		this.fallback = null;
+		this.lastFrameAt = 0;
+		this.fallbackApplied = false;
 	}
 
-	/** Send whatever was held back. Called from any later turn. */
-	drainDeferred() {
-		if (this.deferred === null) { return; }
-		const frame = this.deferred;
-		this.deferred = null;
-		this.send(frame);
+	ensureConnected() {
+		const self = this;
+		// Re-armed on every reconnect, not just the first, so a dropped link also
+		// recovers a strip that was switched off in the meantime.
+		this.colour.ensureConnected(function () { self.needsPowerOn = true; });
+		this.power.ensureConnected(null);
+	}
+
+	/** Route by command type, so colour and power can never share a packet. */
+	send(frame) {
+		this.lastUsedAt = Date.now();
+
+		const cmd = frame[0];
+
+		if (cmd === CMD_POWER) {
+			// Fall back to the colour channel if the power channel is not up yet: one
+			// command still beats none, it just loses the packet-separation guarantee.
+			if (this.power.send(frame)) { return true; }
+			return this.colour.send(frame);
+		}
+
+		if (cmd === CMD_COLOUR_A || cmd === CMD_COLOUR_B) {
+			return this.colour.send(frame);
+		}
+
+		// Anything else (a state query) goes on whichever channel is up.
+		if (this.colour.send(frame)) { return true; }
+		return this.power.send(frame);
+	}
+
+	isReady() { return this.colour.isReady() || this.power.isReady(); }
+
+	close() {
+		this.colour.close();
+		this.power.close();
+	}
+
+	/**
+	 * Keep the power channel from going stale.
+	 *
+	 * It carries no traffic between shutdowns, yet it is the one that has to work at
+	 * the exact moment the machine is going down. The state query is read-only.
+	 */
+	keepAlive() {
+		if (!this.power.isReady()) { return; }
+		if (Date.now() - this.power.lastSendAt < KEEPALIVE_MS) { return; }
+		this.power.send(lednetFrame([0x81, 0x8A, 0x8B]));
 	}
 
 	/**
 	 * Leave the strip in the configured state.
 	 *
-	 * The controller persists colour in non-volatile storage and reloads it on power-on,
-	 * so this decides what the strip shows next time it is switched on by hand. The
-	 * colour goes out now and the power-off is held for the next turn, so the two do
-	 * not share a packet - the controller would act on only the first.
+	 * Both commands go out immediately, on their own channels. No deferral and no
+	 * waiting for a later turn - which is what makes this usable during shutdown,
+	 * where there is no later turn.
 	 */
 	applyFallback(reason) {
 		if (!this.fallback || this.fallbackApplied) { return; }
@@ -263,22 +308,21 @@ class BridgeConnection {
 		this.fallbackApplied = true;
 		if (this.fallback.mode === SHUTDOWN_LEAVE) { return; }
 
-		// A single command cannot share a packet with anything, so this path has no
-		// ordering problem at all - which is why it is the reliable one.
 		if (this.fallback.mode === SHUTDOWN_OFF_ONLY) {
 			this.send(lednetFrame([0x71, 0x24, 0x0F]));
 			service.log("RGBeAll Bridge: powered off " + this.ip + " (" + reason + ")");
 			return;
 		}
 
+		// Colour first: it is discarded if the strip is already off.
 		const c = this.fallback.rgb;
 		this.send(lednetFrame([0x31, c[0], c[1], c[2], 0x00, 0xF0, 0x0F]));
 
 		if (this.fallback.mode === SHUTDOWN_RESTORE_AND_OFF) {
-			this.defer(lednetFrame([0x71, 0x24, 0x0F]));
+			this.send(lednetFrame([0x71, 0x24, 0x0F]));
 		}
 
-		service.log("RGBeAll Bridge: restoring " + this.ip + " (" + reason + ")");
+		service.log("RGBeAll Bridge: restored " + this.ip + " (" + reason + ")");
 	}
 }
 
@@ -401,9 +445,8 @@ export function DiscoveryService() {
 
 		if (wasPoweredOff || conn.needsPowerOn) {
 			// Either the watchdog switched the strip off, or this is the first frame over
-			// a new connection and the strip may be off from a previous shutdown. Power it
-			// on and let the next frame carry the colour - sending both here would put them
-			// in one packet, and the controller would act on only the first.
+			// a new connection and the strip may be off from a previous shutdown. Colour
+			// commands are ignored while it is off, so power it on first.
 			//
 			// This cannot be left to the device half: it sends its own power-on in the
 			// first few rendered frames, which race the relay socket being bound, so those
@@ -412,13 +455,8 @@ export function DiscoveryService() {
 			if (conn.needsPowerOn) { service.log("RGBeAll Bridge: powering " + conn.ip + " on for a new connection"); }
 			conn.needsPowerOn = false;
 			conn.send(lednetFrame([0x71, 0x23, 0x0F]));
-			return;
-		}
-
-		// Any command held back from a previous turn goes first, in its own packet.
-		if (conn.deferred !== null) {
-			conn.drainDeferred();
-			return;
+			// That went out on the power channel, so this frame's colour can follow
+			// immediately on the colour channel without sharing a packet with it.
 		}
 
 		conn.send(payload);
@@ -437,9 +475,6 @@ export function DiscoveryService() {
 			if (!Object.prototype.hasOwnProperty.call(this.connections, ip)) { continue; }
 			const conn = this.connections[ip];
 
-			// Release anything held back, in case no relay frame has arrived since.
-			conn.drainDeferred();
-
 			// Watchdog: frames have stopped while SignalRGB is still running - the device
 			// was disabled, or lighting was switched off. Leave the strip in a known state
 			// rather than frozen on whatever frame landed last.
@@ -449,11 +484,15 @@ export function DiscoveryService() {
 			}
 
 			if (now - conn.lastUsedAt > IDLE_CLOSE_MS) {
-				// Nothing has rendered to this controller for a while; release the socket.
+				// Nothing has rendered to this controller for a while; release the sockets.
 				conn.close();
 				delete this.connections[ip];
 				service.log("RGBeAll Bridge: released idle connection to " + ip);
+				continue;
 			}
+
+			conn.ensureConnected();
+			conn.keepAlive();
 		}
 	};
 
@@ -461,9 +500,8 @@ export function DiscoveryService() {
 
 	/**
 	 * Last chance to leave the strip in a known state, and it has to be quick: Windows
-	 * gives a process very little time once a shutdown starts. RGBeAll.js attempts the
-	 * same thing from its own Shutdown, but there is no guarantee which side runs first,
-	 * and this side owns the socket.
+	 * gives a process very little time once a shutdown starts. Both commands go out on
+	 * their own channels in this one turn, so neither waits for anything.
 	 */
 	this.Shutdown = function () {
 		for (const ip in this.connections) {
@@ -472,12 +510,6 @@ export function DiscoveryService() {
 				const conn = this.connections[ip];
 				conn.fallbackApplied = false;
 				conn.applyFallback("shutdown");
-				// No later turn is coming, so release the power-off immediately. Qt may
-				// coalesce it with the colour into one packet, in which case only the
-				// colour lands - which is the half that decides what the strip shows when
-				// it is next switched on. RGBeAll.js sends the same pair as two separate
-				// datagrams, which do arrive on separate turns, so that path gets both.
-				conn.drainDeferred();
 			} catch (e) { /* keep going */ }
 		}
 
