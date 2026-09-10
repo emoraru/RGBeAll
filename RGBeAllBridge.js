@@ -28,7 +28,7 @@ import udp from "@SignalRGB/udp";
  */
 
 export function Name() { return "RGBeAll Bridge"; }
-export function Version() { return "1.2.0"; }
+export function Version() { return "1.2.1"; }
 export function Type() { return "network"; }
 export function Publisher() { return "RGBeAll"; }
 export function Size() { return [1, 1]; }
@@ -117,6 +117,11 @@ class BridgeConnection {
 		// One command held back because it must not share a packet with the last one.
 		this.deferred = null;
 
+		// A newly connected controller may be switched off - typically because the last
+		// shutdown turned it off. Colour commands are ignored while it is off, so the
+		// first thing sent on any new connection has to be a power-on.
+		this.needsPowerOn = true;
+
 		// Set from the config channel; null until RGBeAll.js has told us what to do.
 		this.fallback = null;
 		this.lastFrameAt = 0;
@@ -159,6 +164,9 @@ class BridgeConnection {
 				self.connecting = false;
 				self.ready = true;
 				self.failures = 0;
+				// Re-armed on every reconnect, not just the first, so a dropped link also
+				// recovers a strip that was switched off in the meantime.
+				self.needsPowerOn = true;
 				service.log("RGBeAll Bridge: connected to " + self.ip);
 			};
 			const down = function () {
@@ -391,11 +399,19 @@ export function DiscoveryService() {
 		conn.lastFrameAt = Date.now();
 		conn.fallbackApplied = false;
 
-		if (wasPoweredOff) {
-			// The watchdog had switched the strip off. Power it back on and let the next
-			// frame carry the colour - sending both here would put them in one packet.
+		if (wasPoweredOff || conn.needsPowerOn) {
+			// Either the watchdog switched the strip off, or this is the first frame over
+			// a new connection and the strip may be off from a previous shutdown. Power it
+			// on and let the next frame carry the colour - sending both here would put them
+			// in one packet, and the controller would act on only the first.
+			//
+			// This cannot be left to the device half: it sends its own power-on in the
+			// first few rendered frames, which race the relay socket being bound, so those
+			// datagrams can land nowhere. Keying it to this connection instead makes it
+			// reliable regardless of which side starts first.
+			if (conn.needsPowerOn) { service.log("RGBeAll Bridge: powering " + conn.ip + " on for a new connection"); }
+			conn.needsPowerOn = false;
 			conn.send(lednetFrame([0x71, 0x23, 0x0F]));
-			service.log("RGBeAll Bridge: control resumed, powering " + conn.ip + " back on");
 			return;
 		}
 

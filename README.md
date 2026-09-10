@@ -98,10 +98,13 @@ to `Centre`.
 
 ### Taking over, and handing back
 
-**Starting up.** If the strip is already on when SignalRGB launches — left on from the phone app, or
-from a previous session — RGBeAll takes it over as soon as it connects. It also re-asserts the
-canvas colour about once a second, so if something else changes the strip while SignalRGB is
-running, control comes straight back.
+**Starting up.** RGBeAll powers the strip on as soon as it connects, then takes it over. That
+matters because the strip is usually *off* at that point — the previous shutdown turned it off — and
+these controllers **ignore colour commands while powered off**. Sending colour without powering on
+first looks like the plugin is doing nothing at all.
+
+It also re-asserts the canvas colour about once a second, so if something else changes the strip
+while SignalRGB is running, control comes straight back.
 
 **Stopping.** **When SignalRGB stops** decides what the strip is left in:
 

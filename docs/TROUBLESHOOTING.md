@@ -175,3 +175,18 @@ packet — so the colour lands and the power-off is dropped. A single power-off 
 
 You lose the known restore colour: the strip keeps whatever colour the effect ended on, and shows
 that the next time you switch it on by hand.
+
+## The strip stays off when I log back into Windows
+
+Fixed in 1.2.1. Update `RGBeAllBridge.js`.
+
+The shutdown had turned the strip off, and nothing turned it back on. The power-on used to be sent
+by the device half in its first few rendered frames, which race the bridge binding its relay port —
+lose that race and the datagrams land nowhere, and no power-on is ever sent again.
+
+The bridge now sends a power-on itself before the first frame on any new connection, so it does not
+depend on that timing.
+
+This is worth knowing if you are debugging something similar: these controllers **ignore colour
+commands while powered off**, and the state query keeps reporting the old colour, so a stuck colour
+looks exactly like "nothing is being delivered". Check the power byte first.

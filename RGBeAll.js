@@ -13,7 +13,7 @@ import udp from "@SignalRGB/udp";
  */
 
 export function Name() { return "RGBeAll"; }
-export function Version() { return "1.2.0"; }
+export function Version() { return "1.2.1"; }
 export function Type() { return "network"; }
 export function Publisher() { return "RGBeAll"; }
 export function Size() { return [5, 1]; }

@@ -242,3 +242,24 @@ The trap is that some runtimes buffer writes and flush once per turn of their ev
 sends in the *same* turn still leave as one packet. Qt does this; Node does not. If your commands
 are being ignored, check whether they are sharing a packet before you start adding delays — a delay
 is not what fixes it, and a delay is exactly what you cannot afford on a shutdown path.
+
+---
+
+## Colour commands are ignored while the strip is off
+
+Sending `31 RR GG BB ...` to a controller whose power state is `0x24` does nothing. The colour is
+not applied and — importantly — the state query keeps reporting the *old* colour:
+
+```
+power=0x24  R=0 G=255 B=19     <- send 31 00 00 FF ... (blue)
+power=0x24  R=0 G=255 B=19     <- unchanged
+power=0x23  R=0 G=7   B=255    <- after 71 23 0F, colours take effect again
+```
+
+This is an easy trap when debugging. A frozen colour register looks exactly like "my commands are
+not arriving", when in fact the transport is fine and the only thing missing is a power-on. Check
+the power byte before concluding anything about delivery.
+
+The practical consequence: **anything that reconnects to a controller must send a power-on before
+it sends colour**, because the strip may have been switched off since the last session — including
+by its own shutdown behaviour.
