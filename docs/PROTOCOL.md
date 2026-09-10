@@ -223,3 +223,22 @@ guessing — it reports device type, firmware and protocol generation read direc
 
 If your controller does not answer the state query in plaintext, it is a newer encrypted-firmware
 unit and this plugin cannot drive it.
+
+---
+
+## One command per packet
+
+The controller acts on **only the first LEDNET command in a TCP packet**. Concatenating a colour and
+a power-off into a single write leaves the colour applied and the power-off silently ignored:
+
+```
+31 FF 38 08 00 F0 0F 6F 71 24 0F A4     -> colour applied, power-off dropped
+```
+
+This is a packeting rule, not a timing one. Two separate `write()` calls always land, even with no
+gap between them — measured at 0 ms, a 3 ms busy-wait, 15 ms, next-tick and 30 ms, all identical.
+
+The trap is that some runtimes buffer writes and flush once per turn of their event loop, so two
+sends in the *same* turn still leave as one packet. Qt does this; Node does not. If your commands
+are being ignored, check whether they are sharing a packet before you start adding delays — a delay
+is not what fixes it, and a delay is exactly what you cannot afford on a shutdown path.

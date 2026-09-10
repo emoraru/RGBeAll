@@ -13,7 +13,7 @@ import udp from "@SignalRGB/udp";
  */
 
 export function Name() { return "RGBeAll"; }
-export function Version() { return "1.1.0"; }
+export function Version() { return "1.2.0"; }
 export function Type() { return "network"; }
 export function Publisher() { return "RGBeAll"; }
 export function Size() { return [5, 1]; }
@@ -429,8 +429,23 @@ export function Shutdown(SystemSuspending) {
 
 	if (mode !== SHUTDOWN_LEAVE) {
 		const rgb = restoreRgb();
+
+		// Each datagram reaches the bridge as its own callback, so these go out as
+		// separate TCP packets - which is what the controller needs, since it acts on
+		// only the first command in a packet. No delay is involved: this is three
+		// datagrams onto a loopback socket, microseconds of work, which matters because
+		// Windows gives a process very little time once a shutdown starts.
+		//
+		// The power-off is repeated because Qt flushes once per turn of its event loop:
+		// if the first two datagrams happen to be handled in the same turn they would
+		// share a packet and the power-off would be dropped. The repeat lands in a later
+		// turn. Sending it twice is harmless - it is idempotent.
 		link.send(LEDNET.setColour(rgb[0], rgb[1], rgb[2]));
-		if (mode === SHUTDOWN_RESTORE_AND_OFF) { link.send(LEDNET.powerOff()); }
+
+		if (mode === SHUTDOWN_RESTORE_AND_OFF) {
+			link.send(LEDNET.powerOff());
+			link.send(LEDNET.powerOff());
+		}
 	}
 
 	link.closeSocket();

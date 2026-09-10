@@ -112,6 +112,8 @@ in a known colour.
 This applies in two situations:
 
 - **SignalRGB exits or the PC shuts down** — handled on shutdown by both halves of the plugin.
+  This path is deliberately cheap: a few datagrams onto a loopback socket, no waiting on
+  anything, because Windows gives a process very little time once a shutdown begins.
 - **Frames stop while SignalRGB keeps running** — the device is disabled, or lighting is switched
   off. The bridge notices after **Takeover Timeout** seconds and applies the same restore. If frames
   start again, the strip is powered back on automatically.
