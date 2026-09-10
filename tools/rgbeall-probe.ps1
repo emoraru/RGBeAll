@@ -23,10 +23,10 @@
     Run a round-trip latency benchmark using repeated read-only state queries.
 
 .EXAMPLE
-    .\magichome-probe.ps1 -Discover
+    .\rgbeall-probe.ps1 -Discover
 
 .EXAMPLE
-    .\magichome-probe.ps1 -Ip 192.0.2.50 -Latency
+    .\rgbeall-probe.ps1 -Ip 192.0.2.50 -Latency
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'Probe')]
@@ -111,13 +111,13 @@ function Invoke-Discovery {
         Write-Host ""
         Write-Host "Broadcast discovery fails on many normal networks (client isolation, separate"
         Write-Host "VLANs, firewall). If you know the controller's IP, probe it directly:"
-        Write-Host "    .\magichome-probe.ps1 -Ip <address>"
+        Write-Host "    .\rgbeall-probe.ps1 -Ip <address>"
         return
     }
 
     Write-Host "Found $($found.Count) controller(s):" -ForegroundColor Green
     $found | Format-Table -AutoSize
-    Write-Host "Probe one with:  .\magichome-probe.ps1 -Ip <address>"
+    Write-Host "Probe one with:  .\rgbeall-probe.ps1 -Ip <address>"
 }
 
 # ---------------------------------------------------------------------------

@@ -92,7 +92,7 @@ from home.
 Discovery replies arrive as UDP broadcasts. Anything on the network can forge one, so they are
 treated as hostile input rather than as trusted device data.
 
-`parseDiscoveryReply()` in [`MagicHome.js`](../MagicHome.js) enforces, in order:
+`parseDiscoveryReply()` in [`RGBeAll.js`](../RGBeAll.js) enforces, in order:
 
 1. type check — must be a string
 2. length bound — rejected above 128 bytes, before any parsing work is done
@@ -111,7 +111,7 @@ a connection attempt.
 
 ### F-5 - The bridge listens on a local UDP relay port (new in 1.1.0)
 
-`MagicHomeBridge.js` binds UDP port **41577** to receive frames from the rendering half of the
+`RGBeAllBridge.js` binds UDP port **41577** to receive frames from the rendering half of the
 plugin. Qt binds it on `0.0.0.0`, not just loopback, so other hosts on the LAN can reach it.
 
 **Impact.** Someone on your network could send relay datagrams and change your lighting. They
@@ -129,7 +129,7 @@ about.
   push arbitrary bytes at whatever else may be listening on port 5577
 
 **If you would rather not have it at all:** the bridge is only needed because SignalRGB does not
-expose TCP to the device context. Deleting `MagicHomeBridge.js` removes the listener and disables
+expose TCP to the device context. Deleting `RGBeAllBridge.js` removes the listener and disables
 colour control, leaving the rest of the plugin inert.
 
 ### Residual risk in the plugin

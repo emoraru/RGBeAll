@@ -3,7 +3,7 @@
 Start by running the probe tool — it answers most of these questions directly from the hardware:
 
 ```powershell
-.\tools\magichome-probe.ps1 -Ip 192.0.2.50
+.\tools\rgbeall-probe.ps1 -Ip 192.0.2.50
 ```
 
 ---
@@ -31,7 +31,7 @@ not the device. Use manual entry.
 Check port 5577 is actually reachable:
 
 ```powershell
-.\tools\magichome-probe.ps1 -Ip 192.0.2.50
+.\tools\rgbeall-probe.ps1 -Ip 192.0.2.50
 ```
 
 - **`CLOSED/FILTERED`** — a firewall is in the way, or the address is wrong, or the device is a
@@ -116,15 +116,15 @@ publish those.
 
 ## "Could not open module @SignalRGB/tcp" in the device console
 
-You are missing `MagicHomeBridge.js`, or it failed to load. Both files must be present:
+You are missing `RGBeAllBridge.js`, or it failed to load. Both files must be present:
 
 ```
-MagicHome.js         renders and sends frames
-MagicHomeBridge.js   holds the TCP connection to the controller
-MagicHome.qml        settings panel
+RGBeAll.js         renders and sends frames
+RGBeAllBridge.js   holds the TCP connection to the controller
+RGBeAll.qml        settings panel
 ```
 
-If `MagicHome.js` still contains `import tcp from "@SignalRGB/tcp"`, you have an old copy from
+If `RGBeAll.js` still contains `import tcp from "@SignalRGB/tcp"`, you have an old copy from
 before 1.1.0 — that import fails in the render context and the device never sends anything. Update
 both files together.
 
@@ -141,4 +141,4 @@ The relay between the two files is not connecting. In order:
      Select-Object LocalAddress,LocalPort,OwningProcess
    ```
    The owning process should be `SignalRgb`. If it is something else, stop that program.
-3. **Confirm the controller itself is reachable** with `tools\magichome-probe.ps1 -Ip <address>`.
+3. **Confirm the controller itself is reachable** with `tools\rgbeall-probe.ps1 -Ip <address>`.

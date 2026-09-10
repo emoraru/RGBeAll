@@ -2,7 +2,7 @@ import tcp from "@SignalRGB/tcp";
 import udp from "@SignalRGB/udp";
 
 /**
- * Magic Home TCP bridge for SignalRGB.
+ * RGBeAll - TCP bridge half of the plugin.
  *
  * WHY THIS FILE EXISTS
  * --------------------
@@ -19,15 +19,15 @@ import udp from "@SignalRGB/udp";
  * and the engine is pre-ES2020, so a dynamic `import()` fallback is a syntax error.
  *
  * This file is the other half. It runs in the discovery context, holds the TCP
- * connections, and forwards frames that MagicHome.js sends over loopback UDP.
+ * connections, and forwards frames that RGBeAll.js sends over loopback UDP.
  * Everything stays inside SignalRGB: no external daemon, no background service,
  * nothing to start at boot. Both files just live in the Plugins folder.
  *
  * If a future SignalRGB build exposes `@SignalRGB/tcp` to the device context, this
- * file becomes unnecessary and MagicHome.js can open the socket itself.
+ * file becomes unnecessary and RGBeAll.js can open the socket itself.
  */
 
-export function Name() { return "Magic Home Bridge"; }
+export function Name() { return "RGBeAll Bridge"; }
 export function Version() { return "1.1.0"; }
 export function Type() { return "network"; }
 export function Publisher() { return "RGBeAll"; }
@@ -235,7 +235,7 @@ export function DiscoveryService() {
 	this.started = false;
 
 	this.Initialize = function () {
-		service.log("Magic Home Bridge starting");
+		service.log("RGBeAll Bridge starting");
 	};
 
 	/**
@@ -251,9 +251,9 @@ export function DiscoveryService() {
 			this.relay.on("message", function (msg) { self.onRelayFrame(msg); });
 			this.relay.on("error", function (e) { service.log("Bridge: relay socket error " + e); });
 			this.relay.bind(RELAY_PORT);
-			service.log("Magic Home Bridge listening on " + RELAY_PORT);
+			service.log("RGBeAll Bridge listening on " + RELAY_PORT);
 		} catch (e) {
-			service.log("Magic Home Bridge FAILED to open relay port " + RELAY_PORT + ": " + e);
+			service.log("RGBeAll Bridge FAILED to open relay port " + RELAY_PORT + ": " + e);
 		}
 	};
 

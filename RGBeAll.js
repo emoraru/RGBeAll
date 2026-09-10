@@ -1,8 +1,8 @@
-// NOTE: @SignalRGB/tcp is NOT available in the device context - see MagicHomeBridge.js
+// NOTE: @SignalRGB/tcp is NOT available in the device context - see RGBeAllBridge.js
 import udp from "@SignalRGB/udp";
 
 /**
- * Magic Home / Zengge "LEDNET" Wi-Fi RGB controller plugin for SignalRGB.
+ * RGBeAll - a SignalRGB plugin for Magic Home / Zengge "LEDNET" Wi-Fi RGB controllers.
  *
  * Targets the ANALOG (non-addressable) controller family - device type 0x33 and relatives -
  * which drive a common-anode 12V/24V RGB strip from a 4-pin "+ R G B" header. The whole strip
@@ -12,7 +12,7 @@ import udp from "@SignalRGB/udp";
  * on 48899. Neither is encrypted or authenticated - see docs/SECURITY.md.
  */
 
-export function Name() { return "Magic Home RGB Controller"; }
+export function Name() { return "RGBeAll"; }
 export function Version() { return "1.1.0"; }
 export function Type() { return "network"; }
 export function Publisher() { return "RGBeAll"; }
@@ -152,7 +152,7 @@ function hexToRgb(hex) {
 // SignalRGB does not expose @SignalRGB/tcp to the device (render) context - the
 // import fails there with "Could not open module" - and Magic Home controllers
 // accept colour only over TCP 5577. So frames go out over loopback UDP to
-// MagicHomeBridge.js, which runs in the discovery context where TCP does work,
+// RGBeAllBridge.js, which runs in the discovery context where TCP does work,
 // and forwards them to the controller.
 //
 // Both files ship together and both live in the Plugins folder. There is no
@@ -291,7 +291,7 @@ class MagicHomeLink {
 let link = null;
 
 export function Initialize() {
-	device.setName(controller.name || "Magic Home RGB Controller");
+	device.setName(controller.name || "RGBeAll Controller");
 	device.addFeature("base");
 
 	link = new MagicHomeLink(controller.ip);
@@ -399,7 +399,7 @@ export function DiscoveryService() {
 	this.lastPollTime = 0;
 
 	this.Initialize = function () {
-		service.log("Searching for Magic Home controllers...");
+		service.log("RGBeAll: searching for Magic Home controllers...");
 		this.loadManualDevices();
 	};
 
@@ -429,7 +429,7 @@ export function DiscoveryService() {
 
 		const existing = service.getController(parsed.mac);
 		if (existing === undefined) {
-			service.log(`Discovered Magic Home controller: ${parsed.model}`);
+			service.log(`RGBeAll: discovered controller ${parsed.model}`);
 			service.addController(new MagicHomeController(parsed));
 		} else {
 			existing.updateFromDiscovery(parsed);
@@ -449,7 +449,7 @@ export function DiscoveryService() {
 			return;
 		}
 
-		service.log(`Manually adding Magic Home controller at ${ipAddress}`);
+		service.log(`RGBeAll: manually adding controller at ${ipAddress}`);
 		this.saveManualDevice(ipAddress);
 		service.addController(new MagicHomeController({
 			ip: ipAddress, mac: id, model: "Magic Home (manual)", manual: true,
@@ -585,7 +585,7 @@ class MagicHomeController {
 		}
 	}
 
-	// --- actions invoked from MagicHome.qml -------------------------------
+	// --- actions invoked from RGBeAll.qml -------------------------------
 
 	/** Stop driving this controller, but keep it in the list so it can be re-linked. */
 	startRemove() {

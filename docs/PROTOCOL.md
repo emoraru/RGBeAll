@@ -218,7 +218,7 @@ RGB strip through a 4-pin `+ R G B` header.
 | Typical label | `5-28V`, wattage rating | pixel/IC type, e.g. WS2812B |
 | App shows | a colour wheel only | a pixel or segment count |
 
-Run [`tools/magichome-probe.ps1`](../tools/magichome-probe.ps1) to identify a controller without
+Run [`tools/rgbeall-probe.ps1`](../tools/rgbeall-probe.ps1) to identify a controller without
 guessing — it reports device type, firmware and protocol generation read directly from the hardware.
 
 If your controller does not answer the state query in plaintext, it is a newer encrypted-firmware

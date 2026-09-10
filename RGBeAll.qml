@@ -24,7 +24,7 @@ Item {
 					spacing: 4
 					Text {
 						color: theme.primarytextcolor
-						text: "Analog RGB controllers only"
+						text: "RGBeAll — analog controllers only"
 						font.pixelSize: 15
 						font.family: "Poppins"
 						font.bold: true

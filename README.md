@@ -1,12 +1,15 @@
 # RGBeAll
 
-**A SignalRGB plugin for Magic Home / Zengge Wi-Fi RGB LED controllers.**
+**One name for all your RGB — bring Magic Home Wi-Fi LED strips onto the SignalRGB canvas.**
 
-Drives an analog Magic Home controller directly from SignalRGB, so a desk light strip runs the same
-effects, at the same time, as the RGB inside your PC.
+RGBeAll is a SignalRGB plugin that drives analog Magic Home / Zengge Wi-Fi LED controllers, so a
+desk light strip runs the same effects, at the same time, as the RGB inside your PC.
 
-No external process. No Python daemon. No firmware flashing. No soldering. Two plugin files that talk
-to the controller over its own protocol on your local network.
+It talks to the controller directly in its own protocol on your local network. Nothing goes through
+the Magic Home app or the vendor cloud — the plugin works with the controller's internet access
+blocked entirely.
+
+No external process. No Python daemon. No firmware flashing. No soldering.
 
 ---
 
@@ -18,8 +21,8 @@ That is the common 4-pin `+ R G B` type that drives a plain 12 V or 24 V RGB str
 Don't guess — ask the hardware:
 
 ```powershell
-.\tools\magichome-probe.ps1 -Discover
-.\tools\magichome-probe.ps1 -Ip 192.0.2.50
+.\tools\rgbeall-probe.ps1 -Discover
+.\tools\rgbeall-probe.ps1 -Ip 192.0.2.50
 ```
 
 The probe is strictly read-only. It never changes your lights. It reports device type, firmware and
@@ -62,7 +65,7 @@ your case lighting instead of doing its own thing.
 
 ## Installing
 
-1. Download `MagicHome.js`, `MagicHomeBridge.js` and `MagicHome.qml` from this repository.
+1. Download `RGBeAll.js`, `RGBeAllBridge.js` and `RGBeAll.qml` from this repository.
 2. Copy all three into:
    ```
    %USERPROFILE%\Documents\WhirlwindFX\Plugins\
@@ -70,7 +73,7 @@ your case lighting instead of doing its own thing.
    Create the folder if it does not exist. If your Documents folder is redirected to OneDrive, use
    that path instead.
 3. Restart SignalRGB.
-4. Open **Devices**, find **Magic Home RGB Controller**, and add your controller by IP.
+4. Open **Devices**, find **RGBeAll**, and add your controller by IP.
 
 Discovery runs automatically, but **adding by IP is the reliable path** — broadcast discovery is
 blocked on many normal networks. Set a DHCP reservation for the controller so its address is stable.
@@ -99,10 +102,10 @@ to `Centre`.
 SignalRGB effect canvas
         |  device.color(x, y)
         v
-   MagicHome.js            (device context - has the canvas, but no TCP)
+   RGBeAll.js            (device context - has the canvas, but no TCP)
         |  loopback UDP 41577, ASCII hex
         v
-   MagicHomeBridge.js      (discovery context - has TCP)
+   RGBeAllBridge.js      (discovery context - has TCP)
         |  TCP 5577
         v
      controller  ---->  RGB strip
@@ -119,7 +122,7 @@ path (`AT+NETP` is not implemented on this firmware). So the half of the plugin 
 canvas cannot reach the controller, and the engine is pre-ES2020, so a lazy `import()` fallback is
 a syntax error rather than a workaround.
 
-Hence the split: `MagicHome.js` renders and sends frames over loopback UDP; `MagicHomeBridge.js`
+Hence the split: `RGBeAll.js` renders and sends frames over loopback UDP; `RGBeAllBridge.js`
 holds the TCP connections and forwards them. Both run inside SignalRGB - there is no external
 process and nothing to start at boot.
 
@@ -172,7 +175,7 @@ Useful contributions, roughly in order of value:
 
 - **Addressable (`0xA3`) support.** Deliberately not implemented here, because it cannot be tested
   without the hardware, and shipping untested code that looks supported is worse than declaring it
-  out of scope. The protocol layer in `MagicHome.js` is a self-contained object with no I/O, so an
+  out of scope. The protocol layer in `RGBeAll.js` is a self-contained object with no I/O, so an
   addressable variant slots in beside it without touching transport or rendering.
 - **Reports from other controller models.** If the probe tool says "likely compatible" with an
   unrecognised device type, please open an issue with the output.

@@ -1,5 +1,5 @@
 /**
- * Offline validation for MagicHome.js.
+ * Offline validation for RGBeAll.js.
  *
  * Loads the plugin outside SignalRGB, then asserts the protocol layer against byte
  * sequences captured from real hardware and checks that untrusted network input is
@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-const src_path = process.argv[2] ?? path.join(path.dirname(new URL(import.meta.url).pathname.slice(1)), "..", "MagicHome.js");
+const src_path = process.argv[2] ?? path.join(path.dirname(new URL(import.meta.url).pathname.slice(1)), "..", "RGBeAll.js");
 const tmp_path = path.join(tmpdir(), `magichome.validate.${process.pid}.mjs`);
 
 let source = await readFile(src_path, "utf8");
