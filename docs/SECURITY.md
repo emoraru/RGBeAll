@@ -109,6 +109,29 @@ Manually entered IP addresses go through the same `isValidIPv4()` check before u
 list is re-validated on load — so a hand-edited settings file cannot inject an arbitrary string into
 a connection attempt.
 
+### F-5 - The bridge listens on a local UDP relay port (new in 1.1.0)
+
+`MagicHomeBridge.js` binds UDP port **41577** to receive frames from the rendering half of the
+plugin. Qt binds it on `0.0.0.0`, not just loopback, so other hosts on the LAN can reach it.
+
+**Impact.** Someone on your network could send relay datagrams and change your lighting. They
+could already do that by talking to the controller directly (F-1), so this adds no capability they
+lacked - but it is new listening surface that would not otherwise exist, and it is worth knowing
+about.
+
+**Mitigations in place.** The bridge is deliberately not a general-purpose forwarder:
+
+- datagrams must carry the `0x52` magic byte and decode as valid ASCII hex
+- payloads are bounded (rejected above 64 bytes decoded, 256 characters on the wire)
+- destinations are restricted to **private IPv4 ranges only** - it cannot be used to reach a public
+  host, so it is not usable as an SSRF or reflection primitive
+- only four LEDNET commands are forwarded (`0x31`, `0x41`, `0x71`, `0x81`), so it cannot be used to
+  push arbitrary bytes at whatever else may be listening on port 5577
+
+**If you would rather not have it at all:** the bridge is only needed because SignalRGB does not
+expose TCP to the device context. Deleting `MagicHomeBridge.js` removes the listener and disables
+colour control, leaving the rest of the plugin inert.
+
 ### Residual risk in the plugin
 
 - **A forged discovery reply can still cause a connection attempt to an attacker-chosen LAN IP.**

@@ -113,3 +113,32 @@ Get-Content $log.FullName -Wait -Tail 40 | Select-String -Pattern 'MagicHome','M
 The plugin logs connection attempts, socket errors and discovery results. Include the relevant lines
 if you open an issue — but **check them for your IP and MAC addresses first** if you would rather not
 publish those.
+
+## "Could not open module @SignalRGB/tcp" in the device console
+
+You are missing `MagicHomeBridge.js`, or it failed to load. Both files must be present:
+
+```
+MagicHome.js         renders and sends frames
+MagicHomeBridge.js   holds the TCP connection to the controller
+MagicHome.qml        settings panel
+```
+
+If `MagicHome.js` still contains `import tcp from "@SignalRGB/tcp"`, you have an old copy from
+before 1.1.0 — that import fails in the render context and the device never sends anything. Update
+both files together.
+
+## The device links but the strip never changes colour
+
+The relay between the two files is not connecting. In order:
+
+1. **Check both plugin files are installed** and SignalRGB has been fully restarted (quit from the
+   tray, not just closing the window).
+2. **Check UDP port 41577 is free.** The bridge binds it; if something else already holds it, the
+   relay silently receives nothing:
+   ```powershell
+   Get-NetUDPEndpoint -LocalPort 41577 -ErrorAction SilentlyContinue |
+     Select-Object LocalAddress,LocalPort,OwningProcess
+   ```
+   The owning process should be `SignalRgb`. If it is something else, stop that program.
+3. **Confirm the controller itself is reachable** with `tools\magichome-probe.ps1 -Ip <address>`.

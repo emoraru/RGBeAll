@@ -5,7 +5,7 @@
 Drives an analog Magic Home controller directly from SignalRGB, so a desk light strip runs the same
 effects, at the same time, as the RGB inside your PC.
 
-No bridge process. No Python daemon. No firmware flashing. No soldering. One plugin file that talks
+No external process. No Python daemon. No firmware flashing. No soldering. Two plugin files that talk
 to the controller over its own protocol on your local network.
 
 ---
@@ -62,8 +62,8 @@ your case lighting instead of doing its own thing.
 
 ## Installing
 
-1. Download `MagicHome.js` and `MagicHome.qml` from this repository.
-2. Copy both into:
+1. Download `MagicHome.js`, `MagicHomeBridge.js` and `MagicHome.qml` from this repository.
+2. Copy all three into:
    ```
    %USERPROFILE%\Documents\WhirlwindFX\Plugins\
    ```
@@ -97,20 +97,41 @@ to `Centre`.
 
 ```
 SignalRGB effect canvas
-        │  device.color(x, y)
-        ▼
-   MagicHome.js  ──── TCP 5577 ────►  controller  ────►  RGB strip
-        │                                  ▲
-        └──── UDP 48899 broadcast ─────────┘
-                  (discovery)
+        |  device.color(x, y)
+        v
+   MagicHome.js            (device context - has the canvas, but no TCP)
+        |  loopback UDP 41577, ASCII hex
+        v
+   MagicHomeBridge.js      (discovery context - has TCP)
+        |  TCP 5577
+        v
+     controller  ---->  RGB strip
 ```
 
-Each frame the plugin samples the canvas, collapses it to one RGB triple, applies gamma and
-brightness, then writes an 8-byte frame to the controller over a single persistent TCP connection.
-Identical consecutive frames are dropped and the send rate is capped.
+### Why there are two files
 
-**30 FPS is comfortable.** Measured on real hardware: 300 frames at 30 FPS with zero failures,
-mean acknowledgement latency 4.13 ms, p99 16 ms. Published figures for Magic Home *addressable*
+SignalRGB runs plugin code in two separate JavaScript contexts, and they do not expose the same
+modules. `@SignalRGB/tcp` resolves in the **discovery** context but **not** in the **device**
+context, where the import fails once per rendered frame. `@SignalRGB/udp` works in both.
+
+Magic Home controllers accept colour only over TCP 5577 - their Wi-Fi module has no UDP control
+path (`AT+NETP` is not implemented on this firmware). So the half of the plugin that can read the
+canvas cannot reach the controller, and the engine is pre-ES2020, so a lazy `import()` fallback is
+a syntax error rather than a workaround.
+
+Hence the split: `MagicHome.js` renders and sends frames over loopback UDP; `MagicHomeBridge.js`
+holds the TCP connections and forwards them. Both run inside SignalRGB - there is no external
+process and nothing to start at boot.
+
+The relay payload is ASCII hex rather than raw binary because the receiving side reads datagrams as
+a UTF-8 string, which mangles every byte above `0x7F`.
+
+Each frame the device half samples the canvas, collapses it to one RGB triple, applies gamma and
+brightness, then sends an 8-byte LEDNET frame. Identical consecutive frames are dropped and the
+send rate is capped.
+
+**30 FPS is comfortable.** Measured on real hardware: 300 frames at 30 FPS with zero failures, mean
+acknowledgement latency 4.13 ms, p99 16 ms. Published figures for Magic Home *addressable*
 controllers are far lower (~5 FPS) because those push large pixel buffers; an 8-byte analog frame is
 a completely different workload.
 

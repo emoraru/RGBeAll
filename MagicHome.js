@@ -1,4 +1,4 @@
-import tcp from "@SignalRGB/tcp";
+// NOTE: @SignalRGB/tcp is NOT available in the device context - see MagicHomeBridge.js
 import udp from "@SignalRGB/udp";
 
 /**
@@ -13,7 +13,7 @@ import udp from "@SignalRGB/udp";
  */
 
 export function Name() { return "Magic Home RGB Controller"; }
-export function Version() { return "1.0.0"; }
+export function Version() { return "1.1.0"; }
 export function Type() { return "network"; }
 export function Publisher() { return "RGBeAll"; }
 export function Size() { return [5, 1]; }
@@ -147,124 +147,117 @@ function hexToRgb(hex) {
 }
 
 // ---------------------------------------------------------------------------
-// Connection
+// Transport
+//
+// SignalRGB does not expose @SignalRGB/tcp to the device (render) context - the
+// import fails there with "Could not open module" - and Magic Home controllers
+// accept colour only over TCP 5577. So frames go out over loopback UDP to
+// MagicHomeBridge.js, which runs in the discovery context where TCP does work,
+// and forwards them to the controller.
+//
+// Both files ship together and both live in the Plugins folder. There is no
+// external process and nothing to start at boot.
 // ---------------------------------------------------------------------------
 
-const RECONNECT_BASE_MS = 1000;
-const RECONNECT_MAX_MS = 30000;
+const RELAY_HOST = "127.0.0.1";
+const RELAY_PORT = 41577;
+const RELAY_MAGIC = 0x52;
+
+// The bridge consumes the first frame to open its TCP connection, so power-on is
+// repeated for the first few frames rather than sent once.
+const PRIME_FRAMES = 3;
+
+const HEX_DIGITS = "0123456789ABCDEF";
+
+/** Encode a byte array as ASCII hex characters, returned as bytes for udp.write(). */
+function toHexBytes(bytes) {
+	const out = [];
+	for (let i = 0; i < bytes.length; i++) {
+		const b = bytes[i] & 0xFF;
+		out.push(HEX_DIGITS.charCodeAt(b >> 4));
+		out.push(HEX_DIGITS.charCodeAt(b & 0x0F));
+	}
+	return out;
+}
+
+function parseOctets(ip) {
+	const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(String(ip || ""));
+	if (!m) { return null; }
+
+	const out = [];
+	for (let i = 1; i <= 4; i++) {
+		const v = parseInt(m[i], 10);
+		if (v < 0 || v > 255) { return null; }
+		out.push(v);
+	}
+	return out;
+}
 
 class MagicHomeLink {
-	constructor(ip, port) {
+	constructor(ip) {
 		this.ip = ip;
-		this.port = port || LEDNET.PORT;
+		this.octets = parseOctets(ip);
 		this.socket = null;
 		this.connected = false;
-		this.connecting = false;
-		this.failures = 0;
-		this.nextAttemptAt = 0;
 		this.lastSentAt = 0;
 		this.lastColour = null;
-		this.primed = false;
+		this.primeSent = 0;
 	}
+
+	get primed() { return this.primeSent >= PRIME_FRAMES; }
 
 	connect() {
-		if (this.connected || this.connecting) { return; }
-		if (Date.now() < this.nextAttemptAt) { return; }
+		if (this.socket) { return; }
+		if (!this.octets) {
+			device.log("Invalid controller address: " + this.ip);
+			return;
+		}
 
-		this.connecting = true;
 		try {
-			this.socket = tcp.createSocket();
-
-			// The controller acknowledges every command (1 byte for set-colour, 4 for power).
-			// We never do synchronous reads here, so acks are simply consumed and discarded -
-			// that sidesteps the frame-desync trap described in docs/PROTOCOL.md.
-			const onUp = () => { this.onConnected(); };
-			const onDown = () => { this.onDisconnected(); };
-
-			// Event naming differs slightly between SignalRGB builds; register the known
-			// variants and treat any of them as the same signal.
-			this.safeOn("connection", onUp);
-			this.safeOn("connected", onUp);
-			this.safeOn("close", onDown);
-			this.safeOn("disconnected", onDown);
-			this.safeOn("error", (e) => { this.onError(e); });
-			this.safeOn("message", () => { /* ack - intentionally discarded */ });
-
-			this.socket.connect(this.ip, this.port);
+			this.socket = udp.createSocket();
+			this.connected = true;
+			device.log("Relaying to " + this.ip + " through the bridge on port " + RELAY_PORT);
 		} catch (e) {
-			this.connecting = false;
-			this.onError(e);
+			this.connected = false;
+			device.log("Could not open relay socket: " + e);
 		}
 	}
 
-	safeOn(event, handler) {
+	/**
+	 * Wrap a LEDNET frame in the relay header and hand it to the bridge.
+	 *
+	 * Encoded as ASCII hex, two characters per byte. The receiving side reads the
+	 * datagram as a UTF-8 string, which mangles every byte above 0x7F - a raw binary
+	 * payload arrives corrupted. Hex keeps everything inside 7-bit ASCII.
+	 */
+	send(frame) {
+		if (!this.socket || !this.octets) { return false; }
+
+		const packet = [RELAY_MAGIC].concat(this.octets, frame);
+
 		try {
-			if (this.socket && typeof this.socket.on === "function") {
-				this.socket.on(event, handler);
-			}
-		} catch (e) {
-			// Unsupported event name on this build - ignore, the logic does not depend on it.
-		}
-	}
-
-	onConnected() {
-		this.connecting = false;
-		this.connected = true;
-		this.failures = 0;
-		this.primed = false;
-		device.log(`Connected to Magic Home controller at ${this.ip}:${this.port}`);
-	}
-
-	onDisconnected() {
-		if (this.connected) { device.log(`Connection to ${this.ip} closed`); }
-		this.connected = false;
-		this.connecting = false;
-		this.scheduleRetry();
-	}
-
-	onError(e) {
-		this.connected = false;
-		this.connecting = false;
-		device.log(`Socket error for ${this.ip}: ${e}`);
-		this.scheduleRetry();
-	}
-
-	scheduleRetry() {
-		this.failures++;
-		const backoff = Math.min(RECONNECT_BASE_MS * Math.pow(2, this.failures - 1), RECONNECT_MAX_MS);
-		this.nextAttemptAt = Date.now() + backoff;
-		this.closeSocket();
-	}
-
-	closeSocket() {
-		try { if (this.socket) { this.socket.close(); } } catch (e) { /* already gone */ }
-		this.socket = null;
-	}
-
-	send(bytes) {
-		if (!this.connected || !this.socket) { return false; }
-		try {
-			this.socket.send(bytes);
+			this.socket.write(toHexBytes(packet), RELAY_HOST, RELAY_PORT);
 			return true;
 		} catch (e) {
-			this.onError(e);
+			device.log("Relay send failed: " + e);
+			this.connected = false;
+			this.socket = null;
 			return false;
 		}
 	}
 
 	/**
-	 * Power the strip on and immediately write a colour.
+	 * Power the strip on.
 	 *
-	 * Power-on makes the controller reload its last saved colour from non-volatile storage,
-	 * so without an immediate write the strip visibly flashes a stale colour.
+	 * Power-on makes the controller reload its last saved colour from non-volatile
+	 * storage, so the first rendered colour follows immediately on the next frame
+	 * (~33ms later) to keep the stale-colour flash imperceptible. Spacing the two
+	 * also avoids back-to-back writes on the bridge's TCP socket, which the
+	 * controller does not reliably accept.
 	 */
-	prime(rgb) {
-		if (this.primed) { return; }
+	prime() {
 		this.send(LEDNET.powerOn());
-		this.send(LEDNET.setColour(rgb[0], rgb[1], rgb[2]));
-		this.lastColour = rgb.slice();
-		this.lastSentAt = Date.now();
-		this.primed = true;
+		this.primeSent++;
 	}
 
 	/** Rate-limited, de-duplicated colour write. */
@@ -283,6 +276,12 @@ class MagicHomeLink {
 			this.lastSentAt = now;
 		}
 	}
+
+	closeSocket() {
+		try { if (this.socket) { this.socket.close(); } } catch (e) { /* already gone */ }
+		this.socket = null;
+		this.connected = false;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +294,7 @@ export function Initialize() {
 	device.setName(controller.name || "Magic Home RGB Controller");
 	device.addFeature("base");
 
-	link = new MagicHomeLink(controller.ip, controller.port);
+	link = new MagicHomeLink(controller.ip);
 	link.connect();
 
 	applyFrameRateCap();
@@ -331,7 +330,7 @@ export function Render() {
 	const minInterval = 1000 / clampFps(frameRateCap);
 
 	if (!link.primed) {
-		link.prime(rgb);
+		link.prime();
 		return;
 	}
 
