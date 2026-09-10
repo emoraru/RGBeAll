@@ -68,10 +68,10 @@ export function ControllableParameters() {
 		},
 		{
 			property: "onShutdown", group: "settings", label: "When SignalRGB stops",
-			description: "What the strip should do when SignalRGB exits, the PC shuts down, or control is otherwise lost. 'Turn off' is the most reliable: it is a single command, so a PC shutdown cannot cut it short. The options that also restore a colour need two commands, and on a fast shutdown the second one can be lost - the strip is then left showing the restore colour but still on.",
+			description: "What the strip should do when SignalRGB exits, the PC shuts down, or control is otherwise lost. Restoring a colour first means the strip shows that colour - not a random effect frame - the next time you switch it on from the phone app.",
 			type: "combobox",
 			values: ["Turn off", "Restore colour and turn off", "Restore colour, leave on", "Leave as-is"],
-			default: "Turn off",
+			default: "Restore colour and turn off",
 		},
 		{
 			property: "restoreColor", group: "settings", label: "Restore Colour",

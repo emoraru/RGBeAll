@@ -197,7 +197,7 @@ Sensible hygiene still applies, and this plugin does all of it:
 
 - de-duplicate identical consecutive frames, so a static effect stops re-sending
 - cap the frame rate rather than sending as fast as the canvas renders
-- hold one persistent TCP connection instead of reconnecting per frame
+- hold persistent connections instead of reconnecting per frame
 
 For reference, published figures for Magic Home *addressable* controllers are far lower — around
 5 FPS, throttling to 2. Those numbers are for large pixel buffers. An 8-byte analog frame is a

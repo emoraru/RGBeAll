@@ -165,28 +165,20 @@ certainly terminated rather than closed — a crash, Task Manager, or a power cu
 plugin runs in that case, so the strip keeps whatever colour it last received. The next normal
 shutdown will restore it again.
 
+Note that the restore colour is only written while the strip is still on. If something switched it
+off first, the colour write is discarded by the controller and there is nothing the plugin can do
+about it.
+
 ## The strip changes colour on shutdown but does not turn off
 
-Set **When SignalRGB stops** to **Turn off**.
+Fixed in 1.3.0. Update `RGBeAllBridge.js`.
 
-Restoring a colour *and* powering off needs two different commands. Windows gives a process very
-little time once a shutdown starts, and the controller acts on only the first command in a TCP
-packet — so the colour lands and the power-off is dropped. A single power-off has neither problem.
+Restoring a colour and powering off are two different commands, and the controller acts on only the
+first command in a TCP packet. Older versions sent both on one connection, where they could share a
+packet during the rush of a shutdown - so the colour landed and the power-off was discarded.
 
-You lose the known restore colour: the strip keeps whatever colour the effect ended on, and shows
-that the next time you switch it on by hand.
+The bridge now holds two connections per controller and routes colour on one, power on the other.
+Two sockets cannot share a packet, so both commands arrive.
 
-## The strip stays off when I log back into Windows
-
-Fixed in 1.2.1. Update `RGBeAllBridge.js`.
-
-The shutdown had turned the strip off, and nothing turned it back on. The power-on used to be sent
-by the device half in its first few rendered frames, which race the bridge binding its relay port —
-lose that race and the datagrams land nowhere, and no power-on is ever sent again.
-
-The bridge now sends a power-on itself before the first frame on any new connection, so it does not
-depend on that timing.
-
-This is worth knowing if you are debugging something similar: these controllers **ignore colour
-commands while powered off**, and the state query keeps reporting the old colour, so a stuck colour
-looks exactly like "nothing is being delivered". Check the power byte first.
+If it still happens, check that `RGBeAllBridge.js` is the version you think it is, and that the
+controller is reachable - the power connection needs to be up before the shutdown begins.

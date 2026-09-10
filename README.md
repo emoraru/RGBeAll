@@ -89,7 +89,7 @@ blocked on many normal networks. Set a DHCP reservation for the controller so it
 | **Max Brightness** | 100% | Scales every channel. Analog strips are often far brighter than case lighting. |
 | **Gamma Correction** | on | Perceptual curve, so dim colours look right on a PWM-driven strip. |
 | **Frame Rate Cap** | 30 FPS | Updates per second. Lower it if the strip stutters on weak Wi-Fi. |
-| **When SignalRGB stops** | Turn off | What to leave the strip in when control is lost. See below. |
+| **When SignalRGB stops** | Restore colour and turn off | What to leave the strip in when control is lost. See below. |
 | **Restore Colour** | `#FF3808` | The colour left on the strip when control is lost. |
 | **Takeover Timeout** | 8 s | How long frames may stop before the restore is applied. `0` disables it. |
 
@@ -110,8 +110,8 @@ while SignalRGB is running, control comes straight back.
 
 | Option | What it does |
 |---|---|
-| **Turn off** (default) | powers the strip off, keeping whatever colour the effect ended on |
-| Restore colour and turn off | sets **Restore Colour**, then powers off |
+| **Restore colour and turn off** (default) | sets **Restore Colour**, then powers off |
+| Turn off | powers the strip off, keeping whatever colour the effect ended on |
 | Restore colour, leave on | sets **Restore Colour** and leaves it lit |
 | Leave as-is | nothing |
 

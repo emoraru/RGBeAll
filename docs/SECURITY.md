@@ -73,7 +73,9 @@ from home.
 
 ### What it does
 
-- Opens **one** TCP connection to a controller you configure, on port 5577
+- Opens **two** TCP connections to a controller you configure, on port 5577 - one carries colour,
+  the other power. They are separate so a colour and a power-off cannot end up in the same packet,
+  which the controller would otherwise truncate. See [PROTOCOL.md](PROTOCOL.md).
 - Sends colour and power commands
 - Optionally broadcasts the discovery string on UDP 48899 to find controllers
 

@@ -117,7 +117,7 @@ const KEEPALIVE_MS = 30000;
 // hardware: written in the same tick on two sockets, both land.
 // ---------------------------------------------------------------------------
 
-/** One TCP connection to a controller, with reconnect backoff. */
+/** One of the two TCP connections to a controller, with reconnect backoff. */
 class Channel {
 	constructor(ip, label) {
 		this.ip = ip;
