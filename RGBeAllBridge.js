@@ -59,9 +59,22 @@ export function Shutdown() {}
 // ---------------------------------------------------------------------------
 
 const RELAY_PORT = 41577;
-const RELAY_MAGIC = 0x52;
+const RELAY_MAGIC = 0x52;        // forward a LEDNET frame
+const RELAY_CONFIG = 0x53;       // shutdown behaviour for a controller
 const RELAY_HEADER = 5;
 const LEDNET_PORT = 5577;
+
+// Shutdown modes, mirrored from RGBeAll.js.
+const SHUTDOWN_LEAVE = 0;
+const SHUTDOWN_RESTORE = 1;
+const SHUTDOWN_RESTORE_AND_OFF = 2;
+
+/** Build a LEDNET frame: payload plus the low byte of its sum. */
+function lednetFrame(bytes) {
+	let sum = 0;
+	for (let i = 0; i < bytes.length; i++) { sum += bytes[i]; }
+	return bytes.concat([sum & 0xFF]);
+}
 
 // Only these LEDNET commands are ever forwarded.
 const ALLOWED_COMMANDS = [0x31, 0x41, 0x71, 0x81];
@@ -83,6 +96,51 @@ class BridgeConnection {
 		this.failures = 0;
 		this.nextAttemptAt = 0;
 		this.lastUsedAt = Date.now();
+
+		// Set from the config channel; null until RGBeAll.js has told us what to do.
+		this.fallback = null;
+		this.lastFrameAt = 0;
+		this.fallbackApplied = false;
+		// 0 = nothing sent, 1 = colour sent and power-off still owed, 2 = complete
+		this.fallbackStage = 0;
+	}
+
+	/**
+	 * Leave the strip in the configured state.
+	 *
+	 * The controller persists colour in non-volatile storage and reloads it on power-on,
+	 * so this decides what the strip shows next time it is switched on by hand. Verified
+	 * on hardware: the colour survives even when power-off follows immediately.
+	 */
+	applyFallback(reason) {
+		if (!this.fallback || this.fallbackApplied) { return; }
+		if (this.fallback.mode === SHUTDOWN_LEAVE) { this.fallbackApplied = true; return; }
+
+		const c = this.fallback.rgb;
+		if (!this.send(lednetFrame([0x31, c[0], c[1], c[2], 0x00, 0xF0, 0x0F]))) { return; }
+
+		service.log("RGBeAll Bridge: restored colour on " + this.ip + " (" + reason + ")");
+
+		if (this.fallback.mode !== SHUTDOWN_RESTORE_AND_OFF) {
+			this.fallbackApplied = true;
+			this.fallbackStage = 2;
+			return;
+		}
+
+		// The controller only acts on the first LEDNET command in a burst, so the
+		// power-off has to go out on a later turn rather than straight after the
+		// colour. finishFallback() sends it from the next Update tick.
+		this.fallbackStage = 1;
+	}
+
+	/** Second half of the fallback: the power-off, sent on a later tick. */
+	finishFallback() {
+		if (this.fallbackStage !== 1) { return; }
+		if (!this.send(lednetFrame([0x71, 0x24, 0x0F]))) { return; }
+
+		this.fallbackStage = 2;
+		this.fallbackApplied = true;
+		service.log("RGBeAll Bridge: powered off " + this.ip);
 	}
 
 	on(event, handler) {
@@ -262,22 +320,54 @@ export function DiscoveryService() {
 		if (data === null) { return; }
 
 		if (data.length <= RELAY_HEADER || data.length > 64) { return; }
-		if (data[0] !== RELAY_MAGIC) { return; }
+
+		const kind = data[0];
+		if (kind !== RELAY_MAGIC && kind !== RELAY_CONFIG) { return; }
 
 		const a = data[1], b = data[2], c = data[3], d = data[4];
 		if (!isPrivateIPv4(a, b)) { return; }
 
-		const payload = data.slice(RELAY_HEADER);
-		if (ALLOWED_COMMANDS.indexOf(payload[0]) === -1) { return; }
-
 		const ip = a + "." + b + "." + c + "." + d;
-		let conn = this.connections[ip];
+		const payload = data.slice(RELAY_HEADER);
 
+		let conn = this.connections[ip];
 		if (!conn) {
 			conn = new BridgeConnection(ip);
 			this.connections[ip] = conn;
 			conn.ensureConnected();
-			return;   // the first frame primes the connection
+			if (kind === RELAY_MAGIC) { return; }   // the first frame primes the connection
+		}
+
+		if (kind === RELAY_CONFIG) {
+			if (payload.length < 5) { return; }
+
+			const mode = payload[0];
+			if (mode !== SHUTDOWN_LEAVE && mode !== SHUTDOWN_RESTORE && mode !== SHUTDOWN_RESTORE_AND_OFF) { return; }
+
+			conn.fallback = {
+				mode: mode,
+				rgb: [payload[1], payload[2], payload[3]],
+				watchdogMs: payload[4] * 1000,
+			};
+			return;
+		}
+
+		if (ALLOWED_COMMANDS.indexOf(payload[0]) === -1) { return; }
+
+		// A live frame means control is present again, so re-arm the fallback.
+		const wasPoweredOff = conn.fallbackApplied && conn.fallbackStage === 2 &&
+			conn.fallback && conn.fallback.mode === SHUTDOWN_RESTORE_AND_OFF;
+
+		conn.lastFrameAt = Date.now();
+		conn.fallbackApplied = false;
+		conn.fallbackStage = 0;
+
+		if (wasPoweredOff) {
+			// The watchdog had switched the strip off. Power it back on and let the next
+			// frame carry the colour - one command per burst, as the controller requires.
+			conn.send(lednetFrame([0x71, 0x23, 0x0F]));
+			service.log("RGBeAll Bridge: control resumed, powering " + conn.ip + " back on");
+			return;
 		}
 
 		conn.send(payload);
@@ -296,11 +386,21 @@ export function DiscoveryService() {
 			if (!Object.prototype.hasOwnProperty.call(this.connections, ip)) { continue; }
 			const conn = this.connections[ip];
 
+			// Watchdog: frames have stopped while SignalRGB is still running - the device
+			// was disabled, or lighting was switched off. Leave the strip in a known state
+			// rather than frozen on whatever frame landed last.
+			if (conn.fallbackStage === 1) {
+				conn.finishFallback();
+			} else if (conn.fallback && conn.fallback.watchdogMs > 0 && conn.lastFrameAt > 0 &&
+				now - conn.lastFrameAt > conn.fallback.watchdogMs) {
+				conn.applyFallback("no frames for " + Math.round((now - conn.lastFrameAt) / 1000) + "s");
+			}
+
 			if (now - conn.lastUsedAt > IDLE_CLOSE_MS) {
 				// Nothing has rendered to this controller for a while; release the socket.
 				conn.close();
 				delete this.connections[ip];
-				service.log("Bridge: released idle connection to " + ip);
+				service.log("RGBeAll Bridge: released idle connection to " + ip);
 				continue;
 			}
 
@@ -311,6 +411,22 @@ export function DiscoveryService() {
 	this.CheckForDevices = function () { };
 
 	this.Shutdown = function () {
+		// Last chance to leave the strip in a known state. RGBeAll.js attempts the same
+		// thing from its own Shutdown, but during application exit there is no guarantee
+		// which side runs first - and this side owns the socket.
+		for (const ip in this.connections) {
+			if (Object.prototype.hasOwnProperty.call(this.connections, ip)) {
+				try {
+					this.connections[ip].applyFallback("shutdown");
+					// No later tick is coming, so attempt the power-off immediately. The
+					// controller may only act on the first command of a burst, in which
+					// case the colour still lands - which is the half that decides what
+					// the strip shows when it is next switched on by hand.
+					this.connections[ip].finishFallback();
+				} catch (e) { /* keep going */ }
+			}
+		}
+
 		for (const ip in this.connections) {
 			if (Object.prototype.hasOwnProperty.call(this.connections, ip)) {
 				this.connections[ip].close();

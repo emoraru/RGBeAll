@@ -23,7 +23,7 @@ let source = await readFile(src_path, "utf8");
 // The @SignalRGB/* modules only exist inside the application.
 source = source.replace(/^import .*$/gm, "");
 // Surface module-private helpers so they can be asserted.
-source += `\nexport { LEDNET, parseDiscoveryReply, isValidIPv4, clampByte, hexToRgb, GAMMA_TABLE };\n`;
+source += `\nexport { LEDNET, parseDiscoveryReply, isValidIPv4, clampByte, hexToRgb, GAMMA_TABLE, toHexBytes, clampWatchdog, RELAY_MAGIC, RELAY_CONFIG, SHUTDOWN_LEAVE, SHUTDOWN_RESTORE, SHUTDOWN_RESTORE_AND_OFF };\n`;
 
 await writeFile(tmp_path, source, "utf8");
 
@@ -36,7 +36,29 @@ try {
 	process.exit(1);
 }
 
-const { LEDNET, parseDiscoveryReply, isValidIPv4, clampByte, hexToRgb, GAMMA_TABLE } = plugin;
+const { LEDNET, parseDiscoveryReply, isValidIPv4, clampByte, hexToRgb, GAMMA_TABLE,
+	toHexBytes, clampWatchdog, RELAY_MAGIC, RELAY_CONFIG,
+	SHUTDOWN_LEAVE, SHUTDOWN_RESTORE, SHUTDOWN_RESTORE_AND_OFF } = plugin;
+
+// The bridge is the other half of the relay contract, so load it too.
+const bridge_path = path.join(path.dirname(src_path), "RGBeAllBridge.js");
+const bridge_tmp = path.join(tmpdir(), `rgbeallbridge.validate.${process.pid}.mjs`);
+let bridge_src = await readFile(bridge_path, "utf8");
+bridge_src = bridge_src.replace(/^import .*$/gm, "");
+bridge_src += "\nexport { decodeRelay, isPrivateIPv4, lednetFrame };\n";
+await writeFile(bridge_tmp, bridge_src, "utf8");
+
+let bridge;
+try {
+	bridge = await import(pathToFileURL(bridge_tmp).href);
+} catch (err) {
+	console.error("FAILED TO LOAD BRIDGE");
+	console.error(err.stack);
+	await unlink(tmp_path).catch(() => {});
+	await unlink(bridge_tmp).catch(() => {});
+	process.exit(1);
+}
+
 
 let passed = 0;
 let failed = 0;
@@ -140,6 +162,46 @@ check("maps 0 to 0", GAMMA_TABLE[0], 0);
 check("maps 255 to 255", GAMMA_TABLE[255], 255);
 check("is monotonic", GAMMA_TABLE.every((v, i, a) => i === 0 || v >= a[i - 1]), true);
 check("darkens midtones", GAMMA_TABLE[128] < 128, true);
+
+
+// --- relay contract between the two plugin files ---------------------------
+console.log("\n-- relay wire contract (device encoder vs bridge decoder) --");
+
+const asWire = (bytes) => String.fromCharCode(...toHexBytes(bytes));
+
+const colourPacket = [RELAY_MAGIC, 192, 168, 1, 50].concat(LEDNET.setColour(0, 255, 0));
+check("colour packet survives the hop",
+	bridge.decodeRelay({ data: asWire(colourPacket) }), colourPacket);
+
+// The reason the payload is hex at all: bytes above 0x7F do not survive as raw text.
+const highBytes = [RELAY_MAGIC, 192, 168, 1, 153].concat(LEDNET.setColour(255, 200, 128));
+check("high bytes (>0x7F) survive",
+	bridge.decodeRelay({ data: asWire(highBytes) }), highBytes);
+
+const configPacket = [RELAY_CONFIG, 10, 0, 0, 7, SHUTDOWN_RESTORE_AND_OFF, 255, 56, 8, 8];
+check("config packet survives the hop",
+	bridge.decodeRelay({ data: asWire(configPacket) }), configPacket);
+
+check("bridge rejects a public destination", bridge.isPrivateIPv4(8, 8), false);
+check("bridge accepts 192.168.x", bridge.isPrivateIPv4(192, 168), true);
+check("bridge accepts 10.x", bridge.isPrivateIPv4(10, 0), true);
+check("bridge accepts 172.16-31.x", bridge.isPrivateIPv4(172, 20), true);
+check("bridge rejects 172.15.x", bridge.isPrivateIPv4(172, 15), false);
+
+check("bridge frames match the device's",
+	bridge.lednetFrame([0x31, 255, 0, 0, 0x00, 0xF0, 0x0F]), LEDNET.setColour(255, 0, 0));
+check("bridge power-off frame", bridge.lednetFrame([0x71, 0x24, 0x0F]), LEDNET.powerOff());
+
+console.log("\n-- shutdown settings --");
+check("shutdown modes are distinct",
+	new Set([SHUTDOWN_LEAVE, SHUTDOWN_RESTORE, SHUTDOWN_RESTORE_AND_OFF]).size, 3);
+check("clampWatchdog(-5) falls back to default", clampWatchdog(-5), 8);
+check("clampWatchdog(0) allows disabling", clampWatchdog(0), 0);
+check("clampWatchdog(999) clamps", clampWatchdog(999), 120);
+check("clampWatchdog(garbage)", clampWatchdog("abc"), 8);
+check("restore colour default parses", hexToRgb("#FF3808"), [255, 56, 8]);
+
+await unlink(bridge_tmp).catch(() => {});
 
 await unlink(tmp_path).catch(() => {});
 

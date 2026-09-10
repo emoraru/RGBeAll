@@ -89,10 +89,35 @@ blocked on many normal networks. Set a DHCP reservation for the controller so it
 | **Max Brightness** | 100% | Scales every channel. Analog strips are often far brighter than case lighting. |
 | **Gamma Correction** | on | Perceptual curve, so dim colours look right on a PWM-driven strip. |
 | **Frame Rate Cap** | 30 FPS | Updates per second. Lower it if the strip stutters on weak Wi-Fi. |
-| **Turn strip off on shutdown** | off | Whether to power the strip down when SignalRGB exits. |
+| **When SignalRGB stops** | Restore colour and turn off | What to leave the strip in when control is lost. See below. |
+| **Restore Colour** | `#FF3808` | The colour left on the strip when control is lost. |
+| **Takeover Timeout** | 8 s | How long frames may stop before the restore is applied. `0` disables it. |
 
 If the strip looks washed out, you are almost certainly on `Average` with a gradient effect. Switch
 to `Centre`.
+
+### Taking over, and handing back
+
+**Starting up.** If the strip is already on when SignalRGB launches — left on from the phone app, or
+from a previous session — RGBeAll takes it over as soon as it connects. It also re-asserts the
+canvas colour about once a second, so if something else changes the strip while SignalRGB is
+running, control comes straight back.
+
+**Stopping.** The controller keeps its last colour in non-volatile storage and reloads it on
+power-on. That means whatever frame happens to land last is what you see the next time you switch
+the strip on by hand — usually a random colour from the middle of an effect. **When SignalRGB
+stops** fixes that: the strip is set to **Restore Colour** and then powered off, so it comes back on
+in a known colour.
+
+This applies in two situations:
+
+- **SignalRGB exits or the PC shuts down** — handled on shutdown by both halves of the plugin.
+- **Frames stop while SignalRGB keeps running** — the device is disabled, or lighting is switched
+  off. The bridge notices after **Takeover Timeout** seconds and applies the same restore. If frames
+  start again, the strip is powered back on automatically.
+
+The one case nothing can cover is SignalRGB being killed outright, or the PC losing power: no code
+runs, so the strip keeps whatever colour it had.
 
 ---
 

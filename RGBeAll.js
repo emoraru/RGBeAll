@@ -30,7 +30,9 @@ samplingMode:readonly
 maxBrightness:readonly
 gammaCorrection:readonly
 frameRateCap:readonly
-turnOffOnShutdown:readonly
+onShutdown:readonly
+restoreColor:readonly
+watchdogSeconds:readonly
 */
 
 export function ControllableParameters() {
@@ -65,8 +67,21 @@ export function ControllableParameters() {
 			step: "1", type: "number", min: "1", max: "40", default: "30",
 		},
 		{
-			property: "turnOffOnShutdown", group: "settings", label: "Turn strip off on shutdown",
-			type: "boolean", default: "false",
+			property: "onShutdown", group: "settings", label: "When SignalRGB stops",
+			description: "What the strip should do when SignalRGB exits, the PC shuts down, or control is otherwise lost. Restoring a colour first means the strip shows that colour - not a random effect frame - the next time you switch it on from the phone app.",
+			type: "combobox",
+			values: ["Restore colour and turn off", "Restore colour, leave on", "Leave as-is"],
+			default: "Restore colour and turn off",
+		},
+		{
+			property: "restoreColor", group: "settings", label: "Restore Colour",
+			description: "The colour the strip is left showing when SignalRGB stops.",
+			min: "0", max: "360", type: "color", default: "#FF3808",
+		},
+		{
+			property: "watchdogSeconds", group: "settings", label: "Takeover Timeout (s)",
+			description: "If SignalRGB stops sending frames for this long while still running - the device is disabled, or lighting is turned off - the strip falls back to the setting above. Set to 0 to disable.",
+			step: "1", type: "number", min: "0", max: "120", default: "8",
 		},
 	];
 }
@@ -161,7 +176,15 @@ function hexToRgb(hex) {
 
 const RELAY_HOST = "127.0.0.1";
 const RELAY_PORT = 41577;
-const RELAY_MAGIC = 0x52;
+const RELAY_MAGIC = 0x52;        // forward a LEDNET frame
+const RELAY_CONFIG = 0x53;       // tell the bridge what to do when frames stop
+
+// Re-send the current colour at least this often even when it has not changed.
+// Two reasons: it keeps the bridge's watchdog fed so silence genuinely means "control
+// lost", and it re-asserts control if something else (the phone app, a remote) changed
+// the strip while SignalRGB was running.
+const HEARTBEAT_MS = 1000;
+const CONFIG_INTERVAL_MS = 5000;
 
 // The bridge consumes the first frame to open its TCP connection, so power-on is
 // repeated for the first few frames rather than sent once.
@@ -200,6 +223,8 @@ class MagicHomeLink {
 		this.socket = null;
 		this.connected = false;
 		this.lastSentAt = 0;
+		this.lastHeartbeatAt = 0;
+		this.lastConfigAt = 0;
 		this.lastColour = null;
 		this.primeSent = 0;
 	}
@@ -260,13 +285,15 @@ class MagicHomeLink {
 		this.primeSent++;
 	}
 
-	/** Rate-limited, de-duplicated colour write. */
+	/** Rate-limited, de-duplicated colour write, with a periodic heartbeat. */
 	pushColour(rgb, minIntervalMs) {
 		const now = Date.now();
 		if (now - this.lastSentAt < minIntervalMs) { return; }
 
 		const prev = this.lastColour;
-		if (prev && prev[0] === rgb[0] && prev[1] === rgb[1] && prev[2] === rgb[2]) {
+		const unchanged = prev && prev[0] === rgb[0] && prev[1] === rgb[1] && prev[2] === rgb[2];
+
+		if (unchanged && now - this.lastHeartbeatAt < HEARTBEAT_MS) {
 			this.lastSentAt = now;
 			return;
 		}
@@ -274,6 +301,23 @@ class MagicHomeLink {
 		if (this.send(LEDNET.setColour(rgb[0], rgb[1], rgb[2]))) {
 			this.lastColour = rgb.slice();
 			this.lastSentAt = now;
+			this.lastHeartbeatAt = now;
+		}
+	}
+
+	/** Tell the bridge what to leave the strip in if our frames stop arriving. */
+	sendConfig(mode, rgb, watchdogSecs) {
+		if (!this.socket || !this.octets) { return; }
+
+		const packet = [RELAY_CONFIG].concat(this.octets, [
+			mode & 0xFF, rgb[0] & 0xFF, rgb[1] & 0xFF, rgb[2] & 0xFF, watchdogSecs & 0xFF,
+		]);
+
+		try {
+			this.socket.write(toHexBytes(packet), RELAY_HOST, RELAY_PORT);
+			this.lastConfigAt = Date.now();
+		} catch (e) {
+			device.log("Relay config send failed: " + e);
 		}
 	}
 
@@ -282,6 +326,29 @@ class MagicHomeLink {
 		this.socket = null;
 		this.connected = false;
 	}
+}
+
+// Shutdown modes, shared with the bridge over the config channel.
+const SHUTDOWN_LEAVE = 0;
+const SHUTDOWN_RESTORE = 1;
+const SHUTDOWN_RESTORE_AND_OFF = 2;
+
+function shutdownMode() {
+	if (onShutdown === "Leave as-is") { return SHUTDOWN_LEAVE; }
+	if (onShutdown === "Restore colour, leave on") { return SHUTDOWN_RESTORE; }
+	return SHUTDOWN_RESTORE_AND_OFF;
+}
+
+function restoreRgb() {
+	const c = hexToRgb(restoreColor);
+	return [clampByte(c[0]), clampByte(c[1]), clampByte(c[2])];
+}
+
+function clampWatchdog(v) {
+	const n = parseInt(v, 10);
+	if (!isFinite(n) || n < 0) { return 8; }
+	if (n > 120) { return 120; }
+	return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -335,14 +402,35 @@ export function Render() {
 	}
 
 	link.pushColour(rgb, minInterval);
+
+	// Keep the bridge's copy of the shutdown behaviour current. Cheap, and it means a
+	// settings change takes effect without a restart.
+	if (Date.now() - link.lastConfigAt > CONFIG_INTERVAL_MS) {
+		link.sendConfig(shutdownMode(), restoreRgb(), clampWatchdog(watchdogSeconds));
+	}
 }
 
+/**
+ * Leave the strip in a known state.
+ *
+ * The controller keeps the last colour in non-volatile storage and reloads it on
+ * power-on, so restoring a colour here decides what the strip shows the next time it
+ * is switched on from the phone app - rather than whatever effect frame happened to
+ * land last. Testing confirmed the colour persists even when the power-off command
+ * follows immediately, so no delay is needed between the two.
+ *
+ * The bridge repeats this independently from its own Shutdown and watchdog, because
+ * during application exit there is no guarantee this runs before the socket goes away.
+ */
 export function Shutdown(SystemSuspending) {
 	if (!link) { return; }
 
-	if (SystemSuspending || turnOffOnShutdown) {
-		link.send(LEDNET.setColour(0, 0, 0));
-		if (turnOffOnShutdown) { link.send(LEDNET.powerOff()); }
+	const mode = shutdownMode();
+
+	if (mode !== SHUTDOWN_LEAVE) {
+		const rgb = restoreRgb();
+		link.send(LEDNET.setColour(rgb[0], rgb[1], rgb[2]));
+		if (mode === SHUTDOWN_RESTORE_AND_OFF) { link.send(LEDNET.powerOff()); }
 	}
 
 	link.closeSocket();

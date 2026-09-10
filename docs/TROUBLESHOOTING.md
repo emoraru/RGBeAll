@@ -142,3 +142,25 @@ The relay between the two files is not connecting. In order:
    ```
    The owning process should be `SignalRgb`. If it is something else, stop that program.
 3. **Confirm the controller itself is reachable** with `tools\rgbeall-probe.ps1 -Ip <address>`.
+
+## The strip turns itself off while I am using the PC
+
+The takeover watchdog fired: RGBeAll stopped receiving frames for longer than **Takeover Timeout**,
+so it restored the colour and powered the strip off. That is intentional — it means control was
+lost rather than the strip being left frozen on a random effect frame.
+
+Usual causes: the device was disabled in SignalRGB, lighting was switched off, or the plugin errored.
+If frames start again the strip powers back on automatically.
+
+To stop it happening, set **Takeover Timeout** to `0`, or set **When SignalRGB stops** to
+`Leave as-is`.
+
+## The strip does not go back to my colour after shutting the PC down
+
+Check **When SignalRGB stops** is not set to `Leave as-is`, and that **Restore Colour** is what you
+expect.
+
+If it is configured correctly and the strip still keeps its last effect colour, SignalRGB was almost
+certainly terminated rather than closed — a crash, Task Manager, or a power cut. Nothing inside the
+plugin runs in that case, so the strip keeps whatever colour it last received. The next normal
+shutdown will restore it again.
