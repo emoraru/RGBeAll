@@ -1,0 +1,15 @@
+# Private working notes - contain device-specific network details, not for publication
+ASSESSMENT.md
+PLAN.md
+
+# Scratch / local experiments
+scratch/
+*.local.*
+*.log
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
