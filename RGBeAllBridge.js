@@ -68,6 +68,7 @@ const LEDNET_PORT = 5577;
 const SHUTDOWN_LEAVE = 0;
 const SHUTDOWN_RESTORE = 1;
 const SHUTDOWN_RESTORE_AND_OFF = 2;
+const SHUTDOWN_OFF_ONLY = 3;
 
 /** Build a LEDNET frame: payload plus the low byte of its sum. */
 function lednetFrame(bytes) {
@@ -254,6 +255,14 @@ class BridgeConnection {
 		this.fallbackApplied = true;
 		if (this.fallback.mode === SHUTDOWN_LEAVE) { return; }
 
+		// A single command cannot share a packet with anything, so this path has no
+		// ordering problem at all - which is why it is the reliable one.
+		if (this.fallback.mode === SHUTDOWN_OFF_ONLY) {
+			this.send(lednetFrame([0x71, 0x24, 0x0F]));
+			service.log("RGBeAll Bridge: powered off " + this.ip + " (" + reason + ")");
+			return;
+		}
+
 		const c = this.fallback.rgb;
 		this.send(lednetFrame([0x31, c[0], c[1], c[2], 0x00, 0xF0, 0x0F]));
 
@@ -263,7 +272,6 @@ class BridgeConnection {
 
 		service.log("RGBeAll Bridge: restoring " + this.ip + " (" + reason + ")");
 	}
-
 }
 
 /**
@@ -363,7 +371,8 @@ export function DiscoveryService() {
 			if (payload.length < 5) { return; }
 
 			const mode = payload[0];
-			if (mode !== SHUTDOWN_LEAVE && mode !== SHUTDOWN_RESTORE && mode !== SHUTDOWN_RESTORE_AND_OFF) { return; }
+			if (mode !== SHUTDOWN_LEAVE && mode !== SHUTDOWN_RESTORE &&
+				mode !== SHUTDOWN_RESTORE_AND_OFF && mode !== SHUTDOWN_OFF_ONLY) { return; }
 
 			conn.fallback = {
 				mode: mode,
@@ -376,8 +385,8 @@ export function DiscoveryService() {
 		if (ALLOWED_COMMANDS.indexOf(payload[0]) === -1) { return; }
 
 		// A live frame means control is present again, so re-arm the fallback.
-		const wasPoweredOff = conn.fallbackApplied &&
-			conn.fallback && conn.fallback.mode === SHUTDOWN_RESTORE_AND_OFF;
+		const wasPoweredOff = conn.fallbackApplied && conn.fallback &&
+			(conn.fallback.mode === SHUTDOWN_RESTORE_AND_OFF || conn.fallback.mode === SHUTDOWN_OFF_ONLY);
 
 		conn.lastFrameAt = Date.now();
 		conn.fallbackApplied = false;
@@ -456,12 +465,8 @@ export function DiscoveryService() {
 			} catch (e) { /* keep going */ }
 		}
 
-		for (const ip in this.connections) {
-			if (Object.prototype.hasOwnProperty.call(this.connections, ip)) {
-				this.connections[ip].close();
-			}
-		}
-		this.connections = {};
-		try { if (this.relay) { this.relay.close(); } } catch (e) { /* already gone */ }
+		// Deliberately not closing the sockets. Tearing them down here would discard
+		// whatever was just written to them, which is precisely how a power-off gets
+		// lost on a fast shutdown. They go away with the process.
 	};
 }

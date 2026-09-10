@@ -68,10 +68,10 @@ export function ControllableParameters() {
 		},
 		{
 			property: "onShutdown", group: "settings", label: "When SignalRGB stops",
-			description: "What the strip should do when SignalRGB exits, the PC shuts down, or control is otherwise lost. Restoring a colour first means the strip shows that colour - not a random effect frame - the next time you switch it on from the phone app.",
+			description: "What the strip should do when SignalRGB exits, the PC shuts down, or control is otherwise lost. 'Turn off' is the most reliable: it is a single command, so a PC shutdown cannot cut it short. The options that also restore a colour need two commands, and on a fast shutdown the second one can be lost - the strip is then left showing the restore colour but still on.",
 			type: "combobox",
-			values: ["Restore colour and turn off", "Restore colour, leave on", "Leave as-is"],
-			default: "Restore colour and turn off",
+			values: ["Turn off", "Restore colour and turn off", "Restore colour, leave on", "Leave as-is"],
+			default: "Turn off",
 		},
 		{
 			property: "restoreColor", group: "settings", label: "Restore Colour",
@@ -332,11 +332,13 @@ class MagicHomeLink {
 const SHUTDOWN_LEAVE = 0;
 const SHUTDOWN_RESTORE = 1;
 const SHUTDOWN_RESTORE_AND_OFF = 2;
+const SHUTDOWN_OFF_ONLY = 3;
 
 function shutdownMode() {
 	if (onShutdown === "Leave as-is") { return SHUTDOWN_LEAVE; }
 	if (onShutdown === "Restore colour, leave on") { return SHUTDOWN_RESTORE; }
-	return SHUTDOWN_RESTORE_AND_OFF;
+	if (onShutdown === "Restore colour and turn off") { return SHUTDOWN_RESTORE_AND_OFF; }
+	return SHUTDOWN_OFF_ONLY;
 }
 
 function restoreRgb() {
@@ -427,19 +429,17 @@ export function Shutdown(SystemSuspending) {
 
 	const mode = shutdownMode();
 
-	if (mode !== SHUTDOWN_LEAVE) {
+	// The power-off is repeated deliberately. Repeating the SAME command is safe no
+	// matter how the datagrams are batched: if two end up sharing one TCP packet the
+	// controller acts on the first, which is still a power-off. That is exactly why
+	// "Turn off" is the reliable option and anything that also restores a colour is
+	// not - there the second command is different, and losing it leaves the strip on.
+	if (mode === SHUTDOWN_OFF_ONLY) {
+		link.send(LEDNET.powerOff());
+		link.send(LEDNET.powerOff());
+		link.send(LEDNET.powerOff());
+	} else if (mode !== SHUTDOWN_LEAVE) {
 		const rgb = restoreRgb();
-
-		// Each datagram reaches the bridge as its own callback, so these go out as
-		// separate TCP packets - which is what the controller needs, since it acts on
-		// only the first command in a packet. No delay is involved: this is three
-		// datagrams onto a loopback socket, microseconds of work, which matters because
-		// Windows gives a process very little time once a shutdown starts.
-		//
-		// The power-off is repeated because Qt flushes once per turn of its event loop:
-		// if the first two datagrams happen to be handled in the same turn they would
-		// share a packet and the power-off would be dropped. The repeat lands in a later
-		// turn. Sending it twice is harmless - it is idempotent.
 		link.send(LEDNET.setColour(rgb[0], rgb[1], rgb[2]));
 
 		if (mode === SHUTDOWN_RESTORE_AND_OFF) {
@@ -448,8 +448,9 @@ export function Shutdown(SystemSuspending) {
 		}
 	}
 
-	link.closeSocket();
-	link.connected = false;
+	// Deliberately NOT closing the relay socket here. Closing it immediately after the
+	// sends discards anything still queued on it - which is what swallowed the power-off
+	// while the colour, sent first, got through. The socket goes away with the process.
 	link = null;
 }
 

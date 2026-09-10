@@ -164,3 +164,14 @@ If it is configured correctly and the strip still keeps its last effect colour, 
 certainly terminated rather than closed — a crash, Task Manager, or a power cut. Nothing inside the
 plugin runs in that case, so the strip keeps whatever colour it last received. The next normal
 shutdown will restore it again.
+
+## The strip changes colour on shutdown but does not turn off
+
+Set **When SignalRGB stops** to **Turn off**.
+
+Restoring a colour *and* powering off needs two different commands. Windows gives a process very
+little time once a shutdown starts, and the controller acts on only the first command in a TCP
+packet — so the colour lands and the power-off is dropped. A single power-off has neither problem.
+
+You lose the known restore colour: the strip keeps whatever colour the effect ended on, and shows
+that the next time you switch it on by hand.

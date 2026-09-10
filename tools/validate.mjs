@@ -23,7 +23,7 @@ let source = await readFile(src_path, "utf8");
 // The @SignalRGB/* modules only exist inside the application.
 source = source.replace(/^import .*$/gm, "");
 // Surface module-private helpers so they can be asserted.
-source += `\nexport { LEDNET, parseDiscoveryReply, isValidIPv4, clampByte, hexToRgb, GAMMA_TABLE, toHexBytes, clampWatchdog, RELAY_MAGIC, RELAY_CONFIG, SHUTDOWN_LEAVE, SHUTDOWN_RESTORE, SHUTDOWN_RESTORE_AND_OFF };\n`;
+source += `\nexport { LEDNET, parseDiscoveryReply, isValidIPv4, clampByte, hexToRgb, GAMMA_TABLE, toHexBytes, clampWatchdog, RELAY_MAGIC, RELAY_CONFIG, SHUTDOWN_LEAVE, SHUTDOWN_RESTORE, SHUTDOWN_RESTORE_AND_OFF, SHUTDOWN_OFF_ONLY };\n`;
 
 await writeFile(tmp_path, source, "utf8");
 
@@ -38,7 +38,7 @@ try {
 
 const { LEDNET, parseDiscoveryReply, isValidIPv4, clampByte, hexToRgb, GAMMA_TABLE,
 	toHexBytes, clampWatchdog, RELAY_MAGIC, RELAY_CONFIG,
-	SHUTDOWN_LEAVE, SHUTDOWN_RESTORE, SHUTDOWN_RESTORE_AND_OFF } = plugin;
+	SHUTDOWN_LEAVE, SHUTDOWN_RESTORE, SHUTDOWN_RESTORE_AND_OFF, SHUTDOWN_OFF_ONLY } = plugin;
 
 // The bridge is the other half of the relay contract, so load it too.
 const bridge_path = path.join(path.dirname(src_path), "RGBeAllBridge.js");
@@ -194,7 +194,11 @@ check("bridge power-off frame", bridge.lednetFrame([0x71, 0x24, 0x0F]), LEDNET.p
 
 console.log("\n-- shutdown settings --");
 check("shutdown modes are distinct",
-	new Set([SHUTDOWN_LEAVE, SHUTDOWN_RESTORE, SHUTDOWN_RESTORE_AND_OFF]).size, 3);
+	new Set([SHUTDOWN_LEAVE, SHUTDOWN_RESTORE, SHUTDOWN_RESTORE_AND_OFF, SHUTDOWN_OFF_ONLY]).size, 4);
+// A power-off on its own cannot share a packet with a different command, which is why
+// it is the mode that survives a fast shutdown.
+check("off-only is a single command",
+	bridge.lednetFrame([0x71, 0x24, 0x0F]).length, 4);
 check("clampWatchdog(-5) falls back to default", clampWatchdog(-5), 8);
 check("clampWatchdog(0) allows disabling", clampWatchdog(0), 0);
 check("clampWatchdog(999) clamps", clampWatchdog(999), 120);

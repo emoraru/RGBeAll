@@ -89,7 +89,7 @@ blocked on many normal networks. Set a DHCP reservation for the controller so it
 | **Max Brightness** | 100% | Scales every channel. Analog strips are often far brighter than case lighting. |
 | **Gamma Correction** | on | Perceptual curve, so dim colours look right on a PWM-driven strip. |
 | **Frame Rate Cap** | 30 FPS | Updates per second. Lower it if the strip stutters on weak Wi-Fi. |
-| **When SignalRGB stops** | Restore colour and turn off | What to leave the strip in when control is lost. See below. |
+| **When SignalRGB stops** | Turn off | What to leave the strip in when control is lost. See below. |
 | **Restore Colour** | `#FF3808` | The colour left on the strip when control is lost. |
 | **Takeover Timeout** | 8 s | How long frames may stop before the restore is applied. `0` disables it. |
 
@@ -103,11 +103,24 @@ from a previous session — RGBeAll takes it over as soon as it connects. It als
 canvas colour about once a second, so if something else changes the strip while SignalRGB is
 running, control comes straight back.
 
-**Stopping.** The controller keeps its last colour in non-volatile storage and reloads it on
-power-on. That means whatever frame happens to land last is what you see the next time you switch
-the strip on by hand — usually a random colour from the middle of an effect. **When SignalRGB
-stops** fixes that: the strip is set to **Restore Colour** and then powered off, so it comes back on
-in a known colour.
+**Stopping.** **When SignalRGB stops** decides what the strip is left in:
+
+| Option | Commands sent | Survives a PC shutdown? |
+|---|---|---|
+| **Turn off** (default) | one | **Yes** |
+| Restore colour and turn off | two | Not reliably |
+| Restore colour, leave on | one | Yes |
+| Leave as-is | none | — |
+
+The distinction matters more than it looks. Windows gives a process very little time once a
+shutdown begins, and the controller acts on only the first command in a TCP packet. A single
+power-off cannot be spoiled by either constraint — if two of them end up sharing a packet, the
+first is still a power-off.
+
+Two *different* commands are fragile in exactly that situation: the colour goes first and lands,
+the power-off shares its packet and is dropped, and the strip is left showing the restore colour
+but still on. That is why **Turn off** is the default even though it leaves whatever colour the
+effect happened to end on.
 
 This applies in two situations:
 
