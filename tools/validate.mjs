@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 const src_path = process.argv[2] ?? path.join(path.dirname(new URL(import.meta.url).pathname.slice(1)), "..", "RGBeAll.js");
-const tmp_path = path.join(tmpdir(), `magichome.validate.${process.pid}.mjs`);
+const tmp_path = path.join(tmpdir(), `rgbeall.validate.${process.pid}.mjs`);
 
 let source = await readFile(src_path, "utf8");
 

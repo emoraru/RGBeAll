@@ -10,7 +10,7 @@ Start by running the probe tool — it answers most of these questions directly 
 
 ## The controller does not appear in SignalRGB
 
-**Add it by IP instead of waiting for discovery.** Open the Magic Home settings panel under Third
+**Add it by IP instead of waiting for discovery.** Open the RGBeAll settings panel under Third
 Party Services, type the controller's address and click Add. Manual entry is the reliable path and
 always available.
 
@@ -107,7 +107,7 @@ live while reproducing a problem:
 ```powershell
 $log = Get-ChildItem "$env:LOCALAPPDATA\WhirlwindFX\SignalRgb\Logs\*.log" |
        Sort-Object LastWriteTime -Descending | Select-Object -First 1
-Get-Content $log.FullName -Wait -Tail 40 | Select-String -Pattern 'MagicHome','Magic Home'
+Get-Content $log.FullName -Wait -Tail 40 | Select-String -Pattern 'RGBeAll'
 ```
 
 The plugin logs connection attempts, socket errors and discovery results. Include the relevant lines

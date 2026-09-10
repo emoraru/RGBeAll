@@ -278,7 +278,7 @@ function Get-FirmwareVersion {
 # ---------------------------------------------------------------------------
 
 Write-Host ""
-Write-Host "Magic Home controller probe (read-only)" -ForegroundColor White
+Write-Host "RGBeAll compatibility probe (read-only)" -ForegroundColor White
 
 if ($Discover) {
     Invoke-Discovery

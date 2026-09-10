@@ -216,7 +216,7 @@ function parseOctets(ip) {
 	return out;
 }
 
-class MagicHomeLink {
+class ControllerLink {
 	constructor(ip) {
 		this.ip = ip;
 		this.octets = parseOctets(ip);
@@ -363,7 +363,7 @@ export function Initialize() {
 	device.setName(controller.name || "RGBeAll Controller");
 	device.addFeature("base");
 
-	link = new MagicHomeLink(controller.ip);
+	link = new ControllerLink(controller.ip);
 	link.connect();
 
 	applyFrameRateCap();
@@ -534,7 +534,7 @@ export function DiscoveryService() {
 		const existing = service.getController(parsed.mac);
 		if (existing === undefined) {
 			service.log(`RGBeAll: discovered controller ${parsed.model}`);
-			service.addController(new MagicHomeController(parsed));
+			service.addController(new RGBeAllController(parsed));
 		} else {
 			existing.updateFromDiscovery(parsed);
 		}
@@ -555,8 +555,8 @@ export function DiscoveryService() {
 
 		service.log(`RGBeAll: manually adding controller at ${ipAddress}`);
 		this.saveManualDevice(ipAddress);
-		service.addController(new MagicHomeController({
-			ip: ipAddress, mac: id, model: "Magic Home (manual)", manual: true,
+		service.addController(new RGBeAllController({
+			ip: ipAddress, mac: id, model: "manual entry", manual: true,
 		}));
 	};
 
@@ -599,8 +599,8 @@ export function DiscoveryService() {
 	this.loadManualDevices = function () {
 		for (const ip of this.readManualList()) {
 			if (service.getController(`manual-${ip}`) === undefined) {
-				service.addController(new MagicHomeController({
-					ip: ip, mac: `manual-${ip}`, model: "Magic Home (manual)", manual: true,
+				service.addController(new RGBeAllController({
+					ip: ip, mac: `manual-${ip}`, model: "manual entry", manual: true,
 				}));
 			}
 		}
@@ -642,7 +642,7 @@ function parseDiscoveryReply(response) {
 	return { ip: ip, mac: mac.toUpperCase(), model: model, manual: false };
 }
 
-class MagicHomeController {
+class RGBeAllController {
 	constructor(info) {
 		this.ip = info.ip;
 		this.port = LEDNET.PORT;
