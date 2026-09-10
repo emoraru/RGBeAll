@@ -31,6 +31,10 @@ Don't guess — ask the hardware:
 The probe is strictly read-only. It never changes your lights. It reports device type, firmware and
 protocol generation, and tells you plainly whether the plugin will work.
 
+Addresses in this repository are documentation examples (`192.0.2.x` is reserved for exactly that).
+Use your controller's own address — `-Discover` reports it, and on a home network it is usually
+something like `192.168.x.x`.
+
 | | Supported | Not supported |
 |---|---|---|
 | Controller | Analog, device type `0x33` and relatives | Addressable (`0xA3`) |
