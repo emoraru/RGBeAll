@@ -11,6 +11,9 @@ blocked entirely.
 
 No external process. No Python daemon. No firmware flashing. No soldering.
 
+Developed and tested against SignalRGB 2.5.x on Windows 11. Node.js is only needed if you want to
+run the test suite; using the plugin needs nothing but SignalRGB.
+
 ---
 
 ## Does this work with my controller?
@@ -77,6 +80,9 @@ your case lighting instead of doing its own thing.
 
 Discovery runs automatically, but **adding by IP is the reliable path** — broadcast discovery is
 blocked on many normal networks. Set a DHCP reservation for the controller so its address is stable.
+
+**Upgrading?** Replace all three files together — the two `.js` files talk to each other and a
+mismatched pair fails in confusing ways. [CHANGELOG.md](CHANGELOG.md) says what changed and when.
 
 ---
 
